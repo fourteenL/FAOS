@@ -122,6 +122,9 @@ async def list_strategies(body: Empty, state: Annotated[AppState, State()]) -> S
 @commands.command()
 async def create_strategy(body: CreateBody, state: Annotated[AppState, State()]) -> StrategyListResp:
     def run():
+        from faos_app.log import log
+
+        log(f"FAOS_CREATE strategy mode={body.mode}")
         if body.mode == "pair":
             if not body.leg_a or not body.leg_b:
                 raise ValueError("请填写 A、B 两腿合约号")

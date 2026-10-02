@@ -90,7 +90,7 @@ function canSubscribe(row) {
           <a-form-item label="总份"><a-input-number v-model:value="form.total_lots" :min="1" style="width: 70px" /></a-form-item>
           <a-form-item>
             <span class="hint">展开该品种全部在市合约组合</span>
-            <a-button type="primary" html-type="submit" :loading="submitting" style="margin-left: 8px">订阅</a-button>
+            <a-button type="primary" :loading="submitting" @click="submit" style="margin-left: 8px">订阅</a-button>
           </a-form-item>
         </a-form>
       </a-tab-pane>
