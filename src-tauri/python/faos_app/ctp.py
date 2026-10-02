@@ -49,12 +49,20 @@ def position_to_dict(p) -> dict:
     }
 
 
+_STATUS_ZH = {
+    "SUBMITTING": "提交中", "NOTTRADED": "未成交", "PARTTRADED": "部分成交",
+    "ALLTRADED": "全部成交", "CANCELLED": "已撤销", "REJECTED": "拒单",
+}
+
+
 def order_to_dict(o) -> dict:
     d = asdict(o)
     d["vt_orderid"] = o.vt_orderid
     d["vt_symbol"] = o.vt_symbol
     d["direction"] = _dir_str(o.direction)
-    d["status"] = getattr(o.status, "value", str(o.status))
+    status = getattr(o.status, "value", str(o.status))
+    d["status"] = status
+    d["status_zh"] = _STATUS_ZH.get(str(status).upper(), str(status))
     d["offset"] = getattr(o.offset, "value", str(getattr(o, "offset", "")))
     return d
 

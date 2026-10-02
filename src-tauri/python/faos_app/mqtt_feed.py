@@ -10,6 +10,7 @@ paho 回调运行在 paho 网络线程；所有对上层回调的调用经 dispa
 
 import json
 import math
+import uuid
 from typing import Callable, Optional
 
 from paho.mqtt.client import CallbackAPIVersion, Client, MQTTMessage
@@ -74,6 +75,10 @@ def parse_status_payload(raw: bytes) -> MqStatus:
 Dispatch = Callable[[Callable, tuple], None]
 
 
+def _new_client_id(user: str) -> str:
+    return f"{user}-faos-{uuid.uuid4().hex[:8]}"
+
+
 class MqttFeedService:
     def __init__(
         self,
@@ -97,6 +102,7 @@ class MqttFeedService:
                 portal.start_task_soon(fn, *args)
             self._dispatch = dispatch_via_portal
 
+        self.client_id = _new_client_id(settings.user)  # 暴露给测试与诊断日志
         self._client = (client_factory() if client_factory else self._make_client())
         self._client.username_pw_set(self._s.user, self._s.password)
         self._client.on_connect = self._on_connect
@@ -107,8 +113,10 @@ class MqttFeedService:
     # -- paho client ------------------------------------------------------
 
     def _make_client(self) -> Client:
-        return Client(CallbackAPIVersion.VERSION1, client_id=f"{self._s.user}-faos-1",
-                      clean_session=False)
+        # client_id 随机：双开实例不互踢；clean_session=True 不在 broker 留过期会话
+        # （离线补推由服务端 5 秒快照重推 + retain 兜底，无需持久会话）
+        return Client(CallbackAPIVersion.VERSION1, client_id=self.client_id,
+                      clean_session=True)
 
     def start(self) -> None:
         """手动连接入口（幂等）：重复调用不重复拨号。"""

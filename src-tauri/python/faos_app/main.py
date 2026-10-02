@@ -88,7 +88,7 @@ def _build_services(settings: Settings, portal, pusher: Pusher) -> AppState:
 
         from faos_app.leg_ops import LegOps
 
-        state.leg_ops = LegOps(ctp, store)
+        state.leg_ops = LegOps(ctp, store, chasing_provider=spread_service.chasing_texts)
         # CTP 就绪（合约查询完成）后经 portal 串行化做持仓校正
         ctp.on_ready = lambda: portal.start_task_soon(manager.reconcile_holdings, ctp)
     except Exception as e:  # CTP 初始化失败不阻塞行情功能

@@ -40,6 +40,7 @@ class SpreadService:
         self._spreads: dict[str, SpreadData] = {}
         self._algo_started: dict[str, float] = {}  # I8 看门狗: algoid -> 启动时刻
         self._algo_direction: dict[str, object] = {}  # algoid -> Direction（方向停止用）
+        self._algo_latest: dict[str, "AlgoItem"] = {}  # pair -> 最新算法快照（追价文案用）
         if event_engine is not None:
             self._install_algo_class()
             event_engine.register(EVENT_SPREAD_ALGO, self._wrap_algo_handler)
@@ -178,13 +179,24 @@ class SpreadService:
 
         portal.start_task_soon(loop)
 
+    def chasing_texts(self) -> dict:
+        """每策略的追价文案（腿部卡片显示）。"""
+        out = {}
+        for pair, it in self._algo_latest.items():
+            out[pair] = (
+                f"追价中：第 {it.count} 轮（成交 {it.traded_volume:.0f}/{it.volume:.0f}）"
+            )
+        return out
+
     def _process_algo_event(self, item: AlgoItem) -> None:
+        self._algo_latest[item.spread_name] = item  # 未完成算法的最新快照
         d = asdict(item)
         d["direction"] = getattr(item.direction, "value", str(item.direction))
         d["status"] = getattr(item.status, "value", str(item.status))
         self._push.algo(d)
         if item.status not in _FINISHED_STATUS:
             return
+        self._algo_latest.pop(item.spread_name, None)  # 完成/停止 → 清除追价文案
         s = self._store.get_by_pair(item.spread_name) if self._store else None
         if s is None:
             return

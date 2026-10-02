@@ -11,6 +11,10 @@ const STATUS_ZH = {
   SUBMITTING: "提交中", NOTTRADED: "未成交", PARTTRADED: "部分成交",
   ALLTRADED: "全部成交", CANCELLED: "已撤销", REJECTED: "拒单",
 };
+
+function statusText(o) {
+  return o.status_zh || STATUS_ZH[String(o.status || "").toUpperCase()] || o.status || "--";
+}
 </script>
 
 <template>
@@ -23,7 +27,7 @@ const STATUS_ZH = {
     <div v-if="!state?.orders?.length" class="muted">无</div>
     <div v-for="o in state?.orders || []" :key="o.vt_orderid" class="row">
       <span>{{ o.direction === "long" ? "买" : "卖" }} {{ fmt(o.price) }} × {{ o.volume }}</span>
-      <span class="muted">已成交 {{ o.traded }}｜{{ STATUS_ZH[o.status] || o.status }}</span>
+      <span class="muted">已成交 {{ o.traded }}｜{{ statusText(o) }}</span>
     </div>
     <div class="sec">最近成交</div>
     <div v-if="!state?.trades_recent?.length" class="muted">无</div>
