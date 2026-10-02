@@ -63,10 +63,6 @@ watch(
       message.info("已填入当前行 4 项差价，可直接修改后挂单");
       return;
     }
-    if (req.value == null) return;
-    const v = Number(req.value).toFixed(precision.value);
-    form[req.action] = Number(v);
-    message.info(`已填入${{ open_short: "空开", close_short: "空平", open_long: "多开", close_long: "多平" }[req.action] || ""}差价 ${v}`);
   },
   { immediate: true }
 );

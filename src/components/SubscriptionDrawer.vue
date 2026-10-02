@@ -87,7 +87,7 @@ function canSubscribe(row) {
     <a-table
       :columns="[
         { title: '编号', dataIndex: 'id', key: 'id', width: 60, align: 'center' },
-        { title: '合约对', key: 'pair', align: 'center' },
+        { title: '合约对', dataIndex: 'pair', key: 'pair', align: 'center' },
         { title: '状态', key: 'status', width: 90, align: 'center' },
         { title: '操作', key: 'action', width: 130, align: 'center' },
       ]"

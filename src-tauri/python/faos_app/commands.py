@@ -80,6 +80,13 @@ class StopDirectionBody(IdBody):
     side: str  # "short" | "long"
 
 
+class QuoteScopeBody(BaseModel):
+    """条目可为品种（如 "ag"，服务端展开）或合约对（"ag2702&ag2612"）。"""
+
+    subscribe: list[str] = []
+    unsubscribe: list[str] = []
+
+
 class CancelLegResp(BaseModel):
     cancelled: int
 
@@ -194,6 +201,16 @@ async def cancel_leg_orders(body: LegBody, state: Annotated[AppState, State()]) 
 @commands.command()
 async def get_app_status(body: Empty, state: Annotated[AppState, State()]) -> DictResp:
     return DictResp(state.app_status())
+
+
+@commands.command()
+async def update_quote_scope(body: QuoteScopeBody, state: Annotated[AppState, State()]) -> Ok:
+    """按需行情范围：仅订阅当前筛选范围的合约对，节省推送开销。"""
+    if body.unsubscribe:
+        state.feed.unsubscribe_pairs(body.unsubscribe)
+    if body.subscribe:
+        state.feed.subscribe_pairs(body.subscribe)
+    return Ok()
 
 
 @commands.command()

@@ -54,10 +54,7 @@ class StrategyManager:
             single_lots=single_lots, total_lots=total_lots,
         )
         self._store.add(s)
-        # spec §3：创建并立即订阅
-        self._feed.subscribe_pairs([s.pair])
-        s.status = StrategyStatus.pending
-        self._store.update(s)
+        # 行情范围由前端 applyScope 统一按需管理（点品种/全部才订阅，节省开销）
         self._push.strategy(s)
         return s
 
@@ -65,8 +62,8 @@ class StrategyManager:
         product = product.strip()
         if not product.isalpha():
             raise ValueError("品种代码应为纯字母，如 ag")
+        # 先登记待展开请求；品种的 tq/sub 由行情范围管理（点该品种/全部时）触发
         self._product_requests[product] = (single_lots, total_lots)
-        self._feed.subscribe_pairs([product])
         return 1
 
     def subscribe(self, strategy_id: int) -> Strategy:

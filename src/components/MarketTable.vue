@@ -116,13 +116,6 @@ const ACTION_BY_KEY = {
   long_open: "open_long",
   long_cover: "close_long",
 };
-
-function clickQuote(row, key) {
-  const v = quoteOf(row, key);
-  if (v == null) return;
-  store.select(row.id); // 未选中时先选中，确保右面板挂载
-  store.fillQuote(ACTION_BY_KEY[key], v);
-}
 </script>
 
 <template>
@@ -142,16 +135,16 @@ function clickQuote(row, key) {
         <a @click.stop="cancelLegA(record)">撤单</a>
       </template>
       <template v-else-if="column.key === 'short_open'">
-        <span class="quote-cell" :class="colorOf(record, 'short_open')" @click="clickQuote(record, 'short_open')">{{ fmt(quoteOf(record, "short_open")) }}</span>
+        <span :class="colorOf(record, 'short_open')">{{ fmt(quoteOf(record, "short_open")) }}</span>
       </template>
       <template v-else-if="column.key === 'short_cover'">
-        <span class="quote-cell" :class="colorOf(record, 'short_cover')" @click="clickQuote(record, 'short_cover')">{{ fmt(quoteOf(record, "short_cover")) }}</span>
+        <span :class="colorOf(record, 'short_cover')">{{ fmt(quoteOf(record, "short_cover")) }}</span>
       </template>
       <template v-else-if="column.key === 'long_open'">
-        <span class="quote-cell" :class="colorOf(record, 'long_open')" @click="clickQuote(record, 'long_open')">{{ fmt(quoteOf(record, "long_open")) }}</span>
+        <span :class="colorOf(record, 'long_open')">{{ fmt(quoteOf(record, "long_open")) }}</span>
       </template>
       <template v-else-if="column.key === 'long_cover'">
-        <span class="quote-cell" :class="colorOf(record, 'long_cover')" @click="clickQuote(record, 'long_cover')">{{ fmt(quoteOf(record, "long_cover")) }}</span>
+        <span :class="colorOf(record, 'long_cover')">{{ fmt(quoteOf(record, "long_cover")) }}</span>
       </template>
       <template v-else-if="column.key === 'a_short'">{{ posOf(record, record.leg_a, "short") ?? "--" }}</template>
       <template v-else-if="column.key === 'b_short'">{{ posOf(record, record.leg_b, "short") ?? "--" }}</template>
@@ -166,7 +159,6 @@ function clickQuote(row, key) {
 </template>
 
 <style scoped>
-.quote-cell { cursor: copy; }
 .up { color: #cf1322; font-weight: 600; }
 .dir-free { color: #389e0d; font-weight: 600; }
 .dir-active { color: #cf1322; font-weight: 600; }
