@@ -84,8 +84,13 @@ export const useAppStore = defineStore("app", {
         if (this.notices.length > 50) this.notices.shift();
       });
       listenPy("conn-state", (p) => {
-        if (p.kind === "mqtt") this.mqttState = p.state;
-        else if (p.kind === "ctp") this.ctpState = p.state;
+        if (p.kind === "mqtt") {
+          this.mqttState = p.state;
+          if (p.state === "disconnected" || p.state.startsWith("error")) {
+            this.quotes = {};      // 断开即清空：不显示上次会话残留
+            this.prevQuotes = {};
+          }
+        } else if (p.kind === "ctp") this.ctpState = p.state;
       });
       listenPy("position", (p) => {
         const sym = p.vt_symbol;

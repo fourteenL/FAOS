@@ -153,6 +153,8 @@ class MqttFeedService:
         pair = parse_spread_topic(msg.topic)
         if pair is None:
             return
+        if getattr(msg, "retain", False):
+            return  # 订阅时 broker 补发的上次会话残留（retain），丢弃：只显示实时行情
         try:
             quote = parse_quote_payload(msg.payload)
         except ValueError:
