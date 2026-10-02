@@ -264,19 +264,15 @@ class StrategyManager:
             self._store.add(s)
             self._push.strategy(s)
 
-        # 订阅被移除 → 策略记录直接删除（未订阅的行不展示）
+        # 订阅列表与 MQTT 严格同步：服务端没有的一律删除（含 stopped/unsubscribed）
         from datetime import datetime as _dt
 
         now = _dt.now()
         for s in list(self._store.list()):
             if s.pair in subscribed or s.pair in pending:
                 continue
-            if s.status in (StrategyStatus.active, StrategyStatus.armed, StrategyStatus.executing):
-                self._store.remove(s.id)
-                self._push.strategy_deleted(s.id)
-                self._push.notice("warn", f"策略 #{s.id} {s.pair} 订阅已失效，已移除")
-            elif s.status == StrategyStatus.pending:
-                # 刚创建的 pending 等待回执（防旧回执误删）；超 15 秒无回执 = 订阅未生效
+            if s.status == StrategyStatus.pending:
+                # 刚创建的 pending 等待回执（防旧回执竞态误删）；超 15 秒无回执 = 订阅未生效
                 try:
                     age = (now - _dt.fromisoformat(s.created_at)).total_seconds()
                 except Exception:
@@ -285,6 +281,10 @@ class StrategyManager:
                     self._store.remove(s.id)
                     self._push.strategy_deleted(s.id)
                     self._push.notice("warn", f"策略 #{s.id} {s.pair} 订阅未生效，已移除")
+                continue
+            self._store.remove(s.id)
+            self._push.strategy_deleted(s.id)
+            self._push.notice("warn", f"策略 #{s.id} {s.pair} 订阅已失效，已移除")
 
     def on_spread(self, pair: str, quote: SpreadQuote) -> None:
         s = self._find_by_pair(pair)
