@@ -1,0 +1,179 @@
+import { defineStore } from "pinia";
+import { call, listenPy } from "../api/pytauri.js";
+
+export const STATUS_ZH = {
+  unsubscribed: "未订阅",
+  pending: "等待行情",
+  active: "空闲",
+  armed: "监控中",
+  executing: "执行中",
+  stopped: "已停止",
+};
+
+/** 策略所属品种：显式 product 优先，否则取 A 腿前导字母（ag2702 -> ag）。 */
+export function productOf(s) {
+  if (s.product) return s.product;
+  const m = String(s.leg_a || "").match(/^[a-zA-Z]+/);
+  return m ? m[0].toLowerCase() : "";
+}
+
+/** 最小变动价位的小数位数（au 0.02 -> 2；ag 1 -> 0）。 */
+export function tickPrecision(tick) {
+  const s = String(tick);
+  return s.includes(".") ? s.split(".")[1].length : 0;
+}
+
+export const useAppStore = defineStore("app", {
+  state: () => ({
+    strategies: [],
+    quotes: {},      // pair -> SpreadQuote
+    prevQuotes: {},  // pair -> 上一帧（用于涨跌方向）
+    positions: {},   // vt_symbol -> { long: n, short: n }
+    orders: [],      // 腿部委托回报（T12 用）
+    trades: [],      // 腿部成交回报（T12 用）
+    algos: [],       // 价差算法状态（T12 用）
+    notices: [],
+    mqttState: "disconnected",
+    ctpState: "disconnected",
+    selectedId: null,
+    products: [],
+    productFilter: null,
+    productTicks: {},
+    fillRequest: null,
+    bound: false,
+  }),
+  getters: {
+    selected(state) {
+      return state.strategies.find((s) => s.id === state.selectedId) || null;
+    },
+    tickOf(state) {
+      return (s) => {
+        const p = productOf(s);
+        const t = state.productTicks[p];
+        return t != null ? t : 1;
+      };
+    },
+    filteredStrategies(state) {
+      if (!state.productFilter) return state.strategies;
+      return state.strategies.filter((s) => productOf(s) === state.productFilter);
+    },
+  },
+  actions: {
+    async init() {
+      // 先绑定事件再拉状态：连接成功事件不会因「后端先连上、前端后绑定」而丢失
+      if (!this.bound) this.bindEvents();
+      const status = await call("get_app_status");
+      this.mqttState = status.mqtt;
+      this.ctpState = status.ctp;
+      this.products = status.products || [];
+      this.productTicks = status.product_ticks || {};
+      this.strategies = await call("list_strategies");
+    },
+    bindEvents() {
+      this.bound = true;
+      listenPy("strategy", (p) => this.upsertStrategy(p.strategy));
+      listenPy("spread", (p) => {
+        this.prevQuotes[p.pair] = this.quotes[p.pair] || null;
+        this.quotes[p.pair] = p.quote;
+      });
+      listenPy("mq-status", (p) => {
+        this.mqStatus = p;
+      });
+      listenPy("notice", (p) => {
+        this.notices.push({ ...p, ts: Date.now() });
+        if (this.notices.length > 50) this.notices.shift();
+      });
+      listenPy("conn-state", (p) => {
+        if (p.kind === "mqtt") this.mqttState = p.state;
+        else if (p.kind === "ctp") this.ctpState = p.state;
+      });
+      listenPy("position", (p) => {
+        const sym = p.vt_symbol;
+        const cur = this.positions[sym] || { long: 0, short: 0 };
+        this.positions[sym] = {
+          long: p.direction === "多" ? p.volume : p.direction === "long" ? p.volume : cur.long,
+          short: p.direction === "空" ? p.volume : p.direction === "short" ? p.volume : cur.short,
+        };
+      });
+      listenPy("order", (p) => {
+        const i = this.orders.findIndex((o) => o.vt_orderid === p.vt_orderid);
+        if (i >= 0) this.orders.splice(i, 1, p);
+        else this.orders.unshift(p);
+      });
+      listenPy("trade", (p) => {
+        this.trades.unshift(p);
+        if (this.trades.length > 200) this.trades.pop();
+      });
+      listenPy("algo", (p) => {
+        const i = this.algos.findIndex((a) => a.algoid === p.algoid);
+        if (i >= 0) this.algos.splice(i, 1, p);
+        else this.algos.unshift(p);
+      });
+    },
+    upsertStrategy(s) {
+      const i = this.strategies.findIndex((x) => x.id === s.id);
+      if (i >= 0) this.strategies.splice(i, 1, s);
+      else this.strategies.push(s);
+    },
+    select(id) {
+      this.selectedId = id;
+    },
+    fillQuote(action, value) {
+      if (value == null) return;
+      const seq = (this.fillRequest?.seq || 0) + 1;
+      this.fillRequest = { action, value, seq }; // OrderPanel watch 后填入
+    },
+    // -- 命令包装 ---------------------------------------------------------
+    async createStrategy(body) {
+      this.strategies = await call("create_strategy", body);
+    },
+    async subscribe(id) {
+      const s = await call("subscribe_strategy", { strategy_id: id });
+      this.upsertStrategy(s);
+    },
+    async removeStrategy(id) {
+      this.strategies = await call("delete_strategy", { strategy_id: id });
+    },
+    async stopStrategy(id) {
+      const s = await call("stop_strategy", { strategy_id: id });
+      this.upsertStrategy(s);
+    },
+    async setLots(id, body) {
+      const s = await call("set_lots", { strategy_id: id, ...body });
+      this.upsertStrategy(s);
+    },
+    async setConfig(id, body) {
+      const s = await call("set_strategy_config", { strategy_id: id, ...body });
+      this.upsertStrategy(s);
+    },
+    async stopDirection(id, side) {
+      const s = await call("stop_strategy_direction", { strategy_id: id, side });
+      this.upsertStrategy(s);
+    },
+    async placeTrigger(id, body) {
+      return call("place_trigger", { strategy_id: id, ...body });
+    },
+    async cancelTrigger(id, triggerId) {
+      const s = await call("cancel_trigger", { strategy_id: id, trigger_id: triggerId });
+      this.upsertStrategy(s);
+    },
+    async refreshLegOrders(id) {
+      return call("get_leg_orders", { strategy_id: id });
+    },
+    async cancelLegOrders(id, leg) {
+      return call("cancel_leg_orders", { strategy_id: id, leg });
+    },
+    async connectMqtt() {
+      await call("connect_mqtt", {});
+      this.mqttState = "connecting";
+    },
+    async disconnectMqtt() {
+      await call("disconnect_mqtt", {});
+      this.mqttState = "disconnected";
+    },
+    async connectCtp() {
+      await call("connect_ctp", {});
+      this.ctpState = "logining";
+    },
+  },
+});

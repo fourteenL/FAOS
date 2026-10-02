@@ -1,0 +1,166 @@
+"""配置读写：settings.json（MQTT / CTP / 算法参数）。
+
+安全约定：源代码零密钥。账号/密码/服务器等敏感配置放在
+`config/settings.local.json`（git 忽略，结构见 config/settings.example.json），
+打包分发时放在 exe 同目录 config/ 下。加载顺序（后层覆盖前层）：
+
+1. 代码内置结构性默认值（不含任何密钥）
+2. 仓库/exe 同目录的 config/settings.local.json
+3. %APPDATA%/faos/settings.json（界面「设置」写入的运行时覆盖层）
+
+CTP 字段名与 vnpy_ctp 6.7.11 网关 default_setting 的中文键一致。
+"""
+
+import json
+import os
+import sys
+from pathlib import Path
+from typing import Optional
+
+from pydantic import BaseModel
+
+
+class MqttSettings(BaseModel):
+    host: str = ""
+    port: int = 1899
+    user: str = ""
+    password: str = ""
+
+
+class CtpSettings(BaseModel):
+    # 中文键 = vnpy_ctp 网关 default_setting 键名
+    用户名: str = ""
+    密码: str = ""
+    经纪商代码: str = ""
+    交易服务器: str = ""
+    行情服务器: str = ""
+    产品名称: str = ""
+    授权编码: str = ""
+    柜台环境: str = "测试"  # "实盘" | "测试"
+
+
+class AlgoSettings(BaseModel):
+    payup: int = 5  # 追价跳数上限
+    interval: int = 3  # 算法轮询间隔（秒）
+    lock: bool = False  # 是否锁仓
+    timeout: int = 300  # 算法看门狗超时（秒，超时停止并告警）
+
+
+SHFE_PRODUCTS_DEFAULT = [
+    "ad", "ag", "al", "ao", "au", "br", "bu", "cu", "fu", "hc",
+    "ni", "op", "pb", "rb", "ru", "sn", "sp", "ss", "wr", "zn",
+]
+
+
+# 上期所品种最小变动价位（元）：差价输入框的步进/精度依据；配置文件可修正
+PRODUCT_TICKS_DEFAULT = {
+    "ad": 1, "ag": 1, "al": 5, "ao": 1, "au": 0.02, "br": 5, "bu": 2,
+    "cu": 10, "fu": 1, "hc": 1, "ni": 10, "op": 1, "pb": 5, "rb": 1,
+    "ru": 5, "sn": 10, "sp": 2, "ss": 5, "wr": 1, "zn": 5,
+}
+
+
+class Settings(BaseModel):
+    mqtt: MqttSettings = MqttSettings()
+    ctp: CtpSettings = CtpSettings()
+    algo: AlgoSettings = AlgoSettings()
+    products: list[str] = SHFE_PRODUCTS_DEFAULT  # 表格上方品种筛选列表，配置文件可增删
+    product_ticks: dict[str, float] = PRODUCT_TICKS_DEFAULT  # 品种 -> 最小变动价位
+
+
+MASK = "******"  # 设置回显掩码；保存时等于该值表示「保持原密码」
+
+
+def masked_settings(s: Settings) -> Settings:
+    """回显用副本：密码字段替换为掩码。"""
+    m = s.model_copy(deep=True)
+    m.mqtt.password = MASK
+    m.ctp.密码 = MASK
+    return m
+
+
+def merge_masked_settings(incoming: Settings, current: Settings) -> Settings:
+    """保存合并：掩码密码回落为当前值，其余以 incoming 为准。"""
+    merged = incoming.model_copy(deep=True)
+    if merged.mqtt.password == MASK:
+        merged.mqtt.password = current.mqtt.password
+    if merged.ctp.密码 == MASK:
+        merged.ctp.密码 = current.ctp.密码
+    return merged
+
+
+def default_data_dir() -> Path:
+    base = os.environ.get("APPDATA") or str(Path.home())
+    d = Path(base) / "faos"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def settings_path() -> Path:
+    return default_data_dir() / "settings.json"
+
+
+def load_settings(path: Path) -> Settings:
+    if not path.exists():
+        return Settings()
+    return Settings.model_validate_json(path.read_text(encoding="utf-8"))
+
+
+REPO_CONFIG_RELPATH = Path("config") / "settings.local.json"
+
+
+def find_repo_config() -> Optional[Path]:
+    """定位 git 忽略的本地配置文件（不抛错，找不到返回 None）。
+
+    候选：① 从本模块位置向上逐级查找（开发态 = 仓库根）；
+    ② 打包态 = faos.exe 同目录的 config/settings.local.json。
+    """
+    candidates = []
+    try:
+        here = Path(__file__).resolve()
+        for parent in here.parents[:6]:
+            candidates.append(parent / REPO_CONFIG_RELPATH)
+    except Exception:
+        pass
+    try:
+        exe_dir = Path(sys.executable).resolve().parent
+        candidates.append(exe_dir / REPO_CONFIG_RELPATH)
+    except Exception:
+        pass
+    for c in candidates:
+        if c.is_file():
+            return c
+    return None
+
+
+def _deep_merge(base: dict, override: dict) -> dict:
+    out = dict(base)
+    for k, v in override.items():
+        if isinstance(v, dict) and isinstance(out.get(k), dict):
+            out[k] = _deep_merge(out[k], v)
+        else:
+            out[k] = v
+    return out
+
+
+def load_effective_settings(appdata_path: Path, repo_path: Optional[Path] = None) -> Settings:
+    """三层合并加载：内置默认 → repo/exe 本地配置 → APPDATA 运行时设置。"""
+    data: dict = {}
+    if repo_path is None:
+        repo_path = find_repo_config()
+    for layer in (repo_path, appdata_path):
+        if layer is not None and Path(layer).exists():
+            try:
+                layer_data = json.loads(Path(layer).read_text(encoding="utf-8"))
+            except Exception:
+                continue
+            if isinstance(layer_data, dict):
+                data = _deep_merge(data, layer_data)
+    return Settings.model_validate(data)
+
+
+def save_settings(settings: Settings, path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(settings.model_dump_json(indent=2), encoding="utf-8")
+    os.replace(tmp, path)

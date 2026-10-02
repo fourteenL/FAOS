@@ -1,0 +1,175 @@
+<script setup>
+import { computed, ref, watch } from "vue";
+import { useAppStore } from "../stores/app.js";
+
+const emit = defineEmits(["cancel-leg", "select"]);
+const store = useAppStore();
+
+const STATUS_ZH = {
+  unsubscribed: "未订阅",
+  pending: "等待行情",
+  active: "空闲",
+  armed: "监控中",
+  executing: "执行中",
+  stopped: "已停止",
+};
+
+// 方向持仓标签：由两腿实际持仓推导（CTP 持仓事件驱动）
+function directionOf(row) {
+  const aL = posNum(row, row.leg_a, "long");
+  const aS = posNum(row, row.leg_a, "short");
+  const bL = posNum(row, row.leg_b, "long");
+  const bS = posNum(row, row.leg_b, "short");
+  const armed = (action) => (row.triggers || []).some((t) => t.action === action);
+  const hasLong = (aL > 0 && bS > 0) || armed("open_long");   // 多头持仓或已挂做多触发单
+  const hasShort = (aS > 0 && bL > 0) || armed("open_short"); // 空头持仓或已挂做空触发单
+  if (hasLong && hasShort) return { label: "空多", cls: "dir-active" };
+  if (hasShort) return { label: "做空", cls: "dir-active" };
+  if (hasLong) return { label: "做多", cls: "dir-active" };
+  return { label: "空闲", cls: "dir-free" };
+}
+
+function posNum(row, leg, dir) {
+  const p = store.positions[`${leg}.SHFE`];
+  return p ? p[dir] || 0 : 0;
+}
+
+function statusText(row) {
+  const base = STATUS_ZH[row.status] || row.status;
+  const held = Math.abs(row.held_units || 0);
+  return held > 0 ? `${base}·持仓${held}份` : base;
+}
+
+function quoteOf(row, key) {
+  const q = store.quotes[row.pair];
+  return q ? q[key] : null;
+}
+
+function fmt(v) {
+  return v == null ? "--" : Number(v).toFixed(2);
+}
+
+// 涨红跌绿：与上一帧比较
+function colorOf(row, key) {
+  const q = store.quotes[row.pair];
+  const prev = store.prevQuotes[row.pair];
+  if (!q || !prev) return "";
+  const now = q[key];
+  const old = prev[key];
+  if (now == null || old == null || now === old) return "";
+  return now > old ? "up" : "down";
+}
+
+const columns = computed(() => [
+  { title: "编号", dataIndex: "id", key: "id", width: 60, align: "center" },
+  { title: "A合约", dataIndex: "leg_a", key: "leg_a", align: "center" },
+  { title: "B合约", dataIndex: "leg_b", key: "leg_b", align: "center" },
+  { title: "A撤单", key: "cancel_a", width: 80, align: "center" },
+  { title: "空开", key: "short_open", align: "center" },
+  { title: "空平", key: "short_cover", align: "center" },
+  { title: "A空仓", key: "a_short", align: "center" },
+  { title: "B空仓", key: "b_short", align: "center" },
+  { title: "多开", key: "long_open", align: "center" },
+  { title: "多平", key: "long_cover", align: "center" },
+  { title: "A多仓", key: "a_long", align: "center" },
+  { title: "B多仓", key: "b_long", align: "center" },
+  { title: "状态", key: "status", width: 130, align: "center" },
+  { title: "单份", dataIndex: "single_lots", key: "single_lots", align: "center", width: 70 },
+  { title: "总份", dataIndex: "total_lots", key: "total_lots", align: "center", width: 70 },
+]);
+
+function posOf(row, leg, dir) {
+  const sym = `${leg}.SHFE`;
+  const p = store.positions[sym];
+  return p ? p[dir] : null;
+}
+
+function onRow(row) {
+  return {
+    onClick: () => {
+      store.select(row.id);
+      emit("select", row.id);
+      fillAll(row);
+    },
+    style: { cursor: "pointer", background: store.selectedId === row.id ? "#e6f4ff" : "" },
+  };
+}
+
+function fillAll(row) {
+  const keys = ["short_open", "short_cover", "long_open", "long_cover"];
+  const values = {};
+  for (const k of keys) {
+    const v = quoteOf(row, k);
+    if (v == null) return; // 任一差价缺失不填，避免半填误导
+    values[ACTION_BY_KEY[k]] = v;
+  }
+  store.fillRequest = { action: "all", seq: (store.fillRequest?.seq || 0) + 1, values };
+}
+
+function cancelLegA(row) {
+  emit("cancel-leg", row.id, "A");
+}
+
+const ACTION_BY_KEY = {
+  short_open: "open_short",
+  short_cover: "close_short",
+  long_open: "open_long",
+  long_cover: "close_long",
+};
+
+function clickQuote(row, key) {
+  const v = quoteOf(row, key);
+  if (v == null) return;
+  store.select(row.id); // 未选中时先选中，确保右面板挂载
+  store.fillQuote(ACTION_BY_KEY[key], v);
+}
+</script>
+
+<template>
+  <a-table
+    :columns="columns"
+    :data-source="store.filteredStrategies"
+    :pagination="false"
+    size="small"
+    row-key="id"
+    :custom-row="onRow"
+  >
+    <template #headerCell="{ column }">
+      <span>{{ column.title }}</span>
+    </template>
+    <template #bodyCell="{ column, record }">
+      <template v-if="column.key === 'cancel_a'">
+        <a @click.stop="cancelLegA(record)">撤单</a>
+      </template>
+      <template v-else-if="column.key === 'short_open'">
+        <span class="quote-cell" :class="colorOf(record, 'short_open')" @click="clickQuote(record, 'short_open')">{{ fmt(quoteOf(record, "short_open")) }}</span>
+      </template>
+      <template v-else-if="column.key === 'short_cover'">
+        <span class="quote-cell" :class="colorOf(record, 'short_cover')" @click="clickQuote(record, 'short_cover')">{{ fmt(quoteOf(record, "short_cover")) }}</span>
+      </template>
+      <template v-else-if="column.key === 'long_open'">
+        <span class="quote-cell" :class="colorOf(record, 'long_open')" @click="clickQuote(record, 'long_open')">{{ fmt(quoteOf(record, "long_open")) }}</span>
+      </template>
+      <template v-else-if="column.key === 'long_cover'">
+        <span class="quote-cell" :class="colorOf(record, 'long_cover')" @click="clickQuote(record, 'long_cover')">{{ fmt(quoteOf(record, "long_cover")) }}</span>
+      </template>
+      <template v-else-if="column.key === 'a_short'">{{ posOf(record, record.leg_a, "short") ?? "--" }}</template>
+      <template v-else-if="column.key === 'b_short'">{{ posOf(record, record.leg_b, "short") ?? "--" }}</template>
+      <template v-else-if="column.key === 'a_long'">{{ posOf(record, record.leg_a, "long") ?? "--" }}</template>
+      <template v-else-if="column.key === 'b_long'">{{ posOf(record, record.leg_b, "long") ?? "--" }}</template>
+      <template v-else-if="column.key === 'status'">
+        <span :class="directionOf(record).cls">{{ directionOf(record).label }}</span>
+        <div class="run-status">{{ statusText(record) }}</div>
+      </template>
+    </template>
+  </a-table>
+</template>
+
+<style scoped>
+.quote-cell { cursor: copy; }
+.up { color: #cf1322; font-weight: 600; }
+.dir-free { color: #389e0d; font-weight: 600; }
+.dir-active { color: #cf1322; font-weight: 600; }
+.run-status { font-size: 11px; color: #999; font-weight: 400; }
+.down { color: #389e0d; font-weight: 600; }
+</style>

@@ -1,0 +1,30 @@
+[package]
+name = "faos"
+version = "0.1.0"
+description = "FAOS 期货差价套利交易软件"
+authors = ["jason"]
+edition = "2024"
+rust-version = "1.90"
+
+[lib]
+name = "faos_app_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[[bin]]
+name = "faos"
+path = "src/main.rs"
+required-features = ["pytauri/standalone"]
+
+[build-dependencies]
+tauri-build = { version = "=2.4.0", features = [] }
+
+[dependencies]
+serde_json = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+tauri = { version = "=2.8.3", features = [] }
+pyo3 = "0.25"
+pytauri = { version = "0.8", features = ["standalone"] }
+tauri-plugin-pytauri = "0.8"
+
+[profile.bundle-release]
+inherits = "release"

@@ -1,0 +1,62 @@
+"""事件推送（Python -> 前端）。事件名前缀 py://，载荷统一 dict。"""
+
+from typing import Optional
+
+from pydantic import RootModel
+from pytauri import AppHandle, Emitter
+
+from faos_app.models import Strategy
+from faos_app.mqtt_feed import MqStatus, SpreadQuote
+
+
+class _Payload(RootModel[dict]):
+    pass
+
+
+def _wrap(d: dict) -> _Payload:
+    return _Payload(d)
+
+
+class Pusher:
+    def __init__(self, app_handle: AppHandle):
+        self._h = app_handle
+        self.on_conn_state = None  # (kind, state) 回调，AppState 同步用
+
+    def _emit(self, name: str, payload: dict) -> None:
+        Emitter.emit(self._h, f"py://{name}", _wrap(payload))
+
+    def strategy(self, s: Strategy) -> None:
+        self._emit("strategy", {"strategy": s.model_dump(mode="json")})
+
+    def spread(self, pair: str, q: SpreadQuote) -> None:
+        self._emit("spread", {"pair": pair, "quote": q.model_dump()})
+
+    def mq_status(self, s: MqStatus) -> None:
+        self._emit("mq-status", s.model_dump(mode="json"))
+
+    def notice(self, level: str, msg: str) -> None:
+        self._emit("notice", {"level": level, "msg": msg})
+
+    def position(self, data: dict) -> None:
+        self._emit("position", data)
+
+    def position_batch(self, items: list) -> None:
+        for d in items:
+            self._emit("position", d)
+
+    def order(self, data: dict) -> None:
+        self._emit("order", data)
+
+    def trade(self, data: dict) -> None:
+        self._emit("trade", data)
+
+    def algo(self, data: dict) -> None:
+        self._emit("algo", data)
+
+    def conn_state(self, kind: str, state: str, msg: Optional[str] = None) -> None:
+        self._emit("conn-state", {"kind": kind, "state": state, "msg": msg})
+        if self.on_conn_state is not None:
+            try:
+                self.on_conn_state(kind, state)
+            except Exception:
+                pass
