@@ -138,6 +138,7 @@ export const useAppStore = defineStore("app", {
     // -- 命令包装 ---------------------------------------------------------
     async createStrategy(body) {
       this.strategies = await call("create_strategy", body);
+      this.productFilter = null; // 重置筛选，确保新订阅行可见
     },
     async subscribe(id) {
       const s = await call("subscribe_strategy", { strategy_id: id });

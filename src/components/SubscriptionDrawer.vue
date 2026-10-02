@@ -29,7 +29,14 @@ async function submit() {
         single_lots: form.single_lots, total_lots: form.total_lots,
       });
     }
-    message.success("已订阅，等待行情服务器回执");
+    if (activeTab.value === "product") {
+      message.info(
+        `已订阅品种「${form.product.trim().toUpperCase()}」，等待行情服务器展开回执后自动生成策略行` +
+        (store.mqttState === "connected" ? "" : "（MQTT 未连接，将在连接后生效）")
+      );
+    } else {
+      message.success("已订阅，合约对已加入行情列表");
+    }
   } catch (e) {
     message.error(String(e));
   } finally {
@@ -62,16 +69,16 @@ function canSubscribe(row) {
   <a-drawer v-model:open="visible" title="订阅管理" width="560" :get-container="false">
     <a-tabs v-model:active-key="activeTab" size="small">
       <a-tab-pane key="pair" tab="自行创建合约对">
-        <a-form layout="inline" @submit.prevent="submit">
+        <a-form layout="inline">
           <a-form-item label="A腿"><a-input v-model:value="form.leg_a" placeholder="如 ag2702" style="width: 110px" /></a-form-item>
           <a-form-item label="B腿"><a-input v-model:value="form.leg_b" placeholder="如 ag2612" style="width: 110px" /></a-form-item>
           <a-form-item label="单份"><a-input-number v-model:value="form.single_lots" :min="1" style="width: 70px" /></a-form-item>
           <a-form-item label="总份"><a-input-number v-model:value="form.total_lots" :min="1" style="width: 70px" /></a-form-item>
-          <a-form-item><a-button type="primary" html-type="submit" :loading="submitting">订阅</a-button></a-form-item>
+          <a-form-item><a-button type="primary" :loading="submitting" @click="submit">订阅</a-button></a-form-item>
         </a-form>
       </a-tab-pane>
       <a-tab-pane key="product" tab="品种自动匹配">
-        <a-form layout="inline" @submit.prevent="submit">
+        <a-form layout="inline">
           <a-form-item label="品种"><a-input v-model:value="form.product" placeholder="如 ag" style="width: 110px" /></a-form-item>
           <a-form-item label="单份"><a-input-number v-model:value="form.single_lots" :min="1" style="width: 70px" /></a-form-item>
           <a-form-item label="总份"><a-input-number v-model:value="form.total_lots" :min="1" style="width: 70px" /></a-form-item>
