@@ -61,14 +61,16 @@ class StrategyManager:
         self._push.strategy(s)
         return s
 
-    def create_product(self, product: str, single_lots: float, total_lots: float) -> int:
+    def create_product(self, product: str, single_lots: float, total_lots: float) -> tuple[int, int]:
         product = product.strip()
         if not product.isalpha():
             raise ValueError("品种代码应为纯字母，如 ag")
-        # 品种条目直接发 tq/sub（服务端展开并推送该品种全部组合）
+        # 品种条目直接发 tq/sub（服务端展开并推送该品种全部组合）；
+        # 已存在的行在下一笔回执时更新单份/总份（重复订阅不再"无反应"）
         self._product_requests[product] = (single_lots, total_lots)
         self._feed.subscribe_pairs([product])
-        return 1
+        existing = sum(1 for s in self._store.list() if self._product_of(s.pair) == product)
+        return 0, existing
 
     def subscribe(self, strategy_id: int) -> Strategy:
         s = self._require(strategy_id)
@@ -251,15 +253,24 @@ class StrategyManager:
         subscribed = set(status.subscribed)
         pending = set(status.pending)
 
-        # 品种展开：subscribed 中出现尚无策略的 pair → 按待展开请求建策略
+        # 品种展开：subscribed 中出现尚无策略的 pair → 建策略；
+        # 已存在且其品种在本会话被重新订阅过 → 更新单份/总份（参数生效）
         for pair in sorted(subscribed | pending):
-            if "&" not in pair or self._find_by_pair(pair) is not None:
+            if "&" not in pair:
                 continue
             product = self._product_of(pair)
-            lots = self._product_requests.get(product, (1, 1))
+            existing = self._find_by_pair(pair)
+            lots = self._product_requests.get(product)
+            if existing is not None:
+                if lots and (existing.single_lots, existing.total_lots) != lots:
+                    existing.single_lots, existing.total_lots = lots
+                    self._store.update(existing)
+                    self._push.strategy(existing)
+                continue
+            use_lots = lots or (1, 1)
             leg_a, _, leg_b = pair.partition("&")
             s = Strategy(id=self._store.next_id(), leg_a=leg_a, leg_b=leg_b,
-                         product=product or None, single_lots=lots[0], total_lots=lots[1],
+                         product=product or None, single_lots=use_lots[0], total_lots=use_lots[1],
                          status=StrategyStatus.pending)
             self._store.add(s)
             self._push.strategy(s)

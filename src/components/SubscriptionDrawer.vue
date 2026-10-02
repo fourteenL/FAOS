@@ -1,7 +1,7 @@
 <script setup>
 import { reactive, ref } from "vue";
 import { message } from "ant-design-vue";
-import { useAppStore, STATUS_ZH } from "../stores/app.js";
+import { useAppStore, STATUS_ZH, productOf } from "../stores/app.js";
 
 const store = useAppStore();
 const visible = ref(false);
@@ -30,10 +30,16 @@ async function submit() {
       });
     }
     if (activeTab.value === "product") {
-      message.info(
-        `已订阅品种「${form.product.trim().toUpperCase()}」，等待行情服务器展开回执后自动生成策略行` +
-        (store.mqttState === "connected" ? "" : "（MQTT 未连接，将在连接后生效）")
-      );
+      const p = form.product.trim().toUpperCase();
+      const count = store.strategies.filter((s) => productOf(s) === p.toLowerCase()).length;
+      if (count > 0) {
+        message.success(`品种 ${p} 已订阅 ${count} 对（表格已显示，单份/总份已按本次输入更新）`);
+      } else {
+        message.info(
+          `已订阅品种「${p}」，等待行情服务器展开回执后自动生成策略行` +
+          (store.mqttState === "connected" ? "" : "（MQTT 未连接，将在连接后生效）")
+        );
+      }
     } else {
       message.success("已订阅，合约对已加入行情列表");
     }
