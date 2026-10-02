@@ -60,7 +60,6 @@ watch(
       for (const k of ["open_short", "close_short", "open_long", "close_long"]) {
         if (vs[k] != null) form[k] = Number(Number(vs[k]).toFixed(precision.value));
       }
-      message.info("已填入当前行 4 项差价，可直接修改后挂单");
       return;
     }
   },
