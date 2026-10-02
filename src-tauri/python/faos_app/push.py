@@ -28,6 +28,9 @@ class Pusher:
     def strategy(self, s: Strategy) -> None:
         self._emit("strategy", {"strategy": s.model_dump(mode="json")})
 
+    def strategy_deleted(self, strategy_id: int) -> None:
+        self._emit("strategy-deleted", {"id": strategy_id})
+
     def spread(self, pair: str, q: SpreadQuote) -> None:
         self._emit("spread", {"pair": pair, "quote": q.model_dump()})
 

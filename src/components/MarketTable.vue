@@ -119,9 +119,11 @@ const ACTION_BY_KEY = {
 </script>
 
 <template>
+  <a-empty v-if="!store.visibleStrategies.length" description="暂无订阅的策略，请在「订阅管理」中创建并订阅" />
   <a-table
+    v-else
     :columns="columns"
-    :data-source="store.filteredStrategies"
+    :data-source="store.visibleStrategies"
     :pagination="false"
     size="small"
     row-key="id"

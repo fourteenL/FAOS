@@ -264,13 +264,27 @@ class StrategyManager:
             self._store.add(s)
             self._push.strategy(s)
 
-        # 已订阅策略的 pair 不再在 subscribed 中 → 回到未订阅
-        for s in self._store.list():
-            if s.status in (StrategyStatus.pending, StrategyStatus.active, StrategyStatus.armed):
-                if s.pair not in subscribed and s.pair not in pending:
-                    s.status = StrategyStatus.unsubscribed
-                    self._store.update(s)
-                    self._push.strategy(s)
+        # 订阅被移除 → 策略记录直接删除（未订阅的行不展示）
+        from datetime import datetime as _dt
+
+        now = _dt.now()
+        for s in list(self._store.list()):
+            if s.pair in subscribed or s.pair in pending:
+                continue
+            if s.status in (StrategyStatus.active, StrategyStatus.armed, StrategyStatus.executing):
+                self._store.remove(s.id)
+                self._push.strategy_deleted(s.id)
+                self._push.notice("warn", f"策略 #{s.id} {s.pair} 订阅已失效，已移除")
+            elif s.status == StrategyStatus.pending:
+                # 刚创建的 pending 等待回执（防旧回执误删）；超 15 秒无回执 = 订阅未生效
+                try:
+                    age = (now - _dt.fromisoformat(s.created_at)).total_seconds()
+                except Exception:
+                    age = 999
+                if age > 15:
+                    self._store.remove(s.id)
+                    self._push.strategy_deleted(s.id)
+                    self._push.notice("warn", f"策略 #{s.id} {s.pair} 订阅未生效，已移除")
 
     def on_spread(self, pair: str, quote: SpreadQuote) -> None:
         s = self._find_by_pair(pair)
