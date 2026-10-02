@@ -14,7 +14,7 @@ function toggle(p) {
 <template>
   <div class="filter-bar">
     <span class="label">品种：</span>
-    <a-checkable-tag :checked="store.productFilter === 'all'" @change="store.productFilter = store.productFilter === 'all' ? null : 'all'">全部</a-checkable-tag>
+    <a-checkable-tag :checked="store.productFilter == null" @change="store.productFilter = null">全部</a-checkable-tag>
     <a-checkable-tag
       v-for="p in products"
       :key="p"

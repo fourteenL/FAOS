@@ -40,8 +40,6 @@ export const useAppStore = defineStore("app", {
     productFilter: null,
     productTicks: {},
     fillRequest: null,
-    activeScopePairs: [],
-    activeScopeProducts: [],
     bound: false,
   }),
   getters: {
@@ -123,48 +121,6 @@ export const useAppStore = defineStore("app", {
     fillAllQuotes(values) {
       const seq = (this.fillRequest?.seq || 0) + 1;
       this.fillRequest = { action: "all", seq, values };
-    },
-    /** 行情订阅范围：filter 决定范围；有触发单/算法的策略强制包含（出范围则无法触发）。
-     *  品种模式发品种条目（服务端展开/补推）；all 模式发全部已知品种 + 全部 pair。 */
-    async applyScope() {
-      const filter = this.productFilter; // null=未选择（不订阅） | "all" | 品种
-      const live = (s) => s.triggers.length > 0 || s.active_algos.length > 0;
-      const wantedPairs = new Set();
-      const wantedProducts = new Set();
-      for (const s of this.strategies) {
-        const inScope = filter === "all" || (filter && productOf(s) === filter);
-        if (inScope || live(s)) wantedPairs.add(s.pair);
-        if (filter === "all" && s.product) wantedProducts.add(s.product);
-      }
-      if (filter && filter !== "all") wantedProducts.add(filter);
-
-      const pairs = [...wantedPairs];
-      const products = [...wantedProducts];
-      const subscribePairs = pairs.filter((x) => !this.activeScopePairs.includes(x));
-      const unsubscribePairs = this.activeScopePairs.filter((x) => !pairs.includes(x));
-      const subscribeProducts = products.filter((x) => !this.activeScopeProducts.includes(x));
-      const unsubscribeProducts = this.activeScopeProducts.filter((x) => !products.includes(x));
-      if (!subscribePairs.length && !unsubscribePairs.length && !subscribeProducts.length && !unsubscribeProducts.length) {
-        return;
-      }
-      this.activeScopePairs = pairs;
-      this.activeScopeProducts = products;
-      try {
-        await call("update_quote_scope", {
-          subscribe: [...subscribeProducts, ...subscribePairs],
-          unsubscribe: [...unsubscribeProducts, ...unsubscribePairs],
-        });
-        if (subscribePairs.length + subscribeProducts.length > 0) {
-          this.notices.push({
-            level: "info",
-            msg: `行情范围更新：订阅 ${subscribeProducts.length} 个品种 / ${subscribePairs.length} 对`,
-            ts: Date.now(),
-          });
-        }
-      } catch (e) {
-        this.activeScopePairs = [];
-        this.activeScopeProducts = [];
-      }
     },
     // -- 命令包装 ---------------------------------------------------------
     async createStrategy(body) {

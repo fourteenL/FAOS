@@ -1,5 +1,5 @@
 <script setup>
-import { onMounted, ref, watch } from "vue";
+import { onMounted, ref } from "vue";
 import { message, notification } from "ant-design-vue";
 import { useAppStore } from "./stores/app.js";
 import StatusBanner from "./components/StatusBanner.vue";
@@ -12,14 +12,6 @@ import SettingsDrawer from "./components/SettingsDrawer.vue";
 import ProductFilter from "./components/ProductFilter.vue";
 
 const store = useAppStore();
-// 行情范围随品种筛选与策略变化自动重算（后端按需订阅/退订，节省开销）
-watch(
-  () => [store.productFilter, store.strategies],
-  () => {
-    store.applyScope();
-  },
-  { deep: false }
-);
 const settingsDrawer = ref(null);
 const subscriptionDrawer = ref(null);
 
