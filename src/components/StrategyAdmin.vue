@@ -6,16 +6,17 @@ import { useAppStore } from "../stores/app.js";
 const store = useAppStore();
 const s = computed(() => store.selected);
 
-const ORDER_TYPES = ["对手价", "排队价", "最新价", "市价"];
-const form = reactive({ slip_a: 5, slip_b: 5, order_type: "对手价" });
+const ORDER_TYPES = ["对手价", "挂价", "最新价", "市价"];
+const form = reactive({ slip_a: 0, slip_b: 100, order_type_a: "挂价", order_type_b: "对手价" });
 
 watch(
   () => s.value?.id,
   () => {
     if (!s.value) return;
-    form.slip_a = s.value.slip_a ?? 5;
-    form.slip_b = s.value.slip_b ?? 5;
-    form.order_type = s.value.order_type ?? "对手价";
+    form.slip_a = s.value.slip_a ?? 0;
+    form.slip_b = s.value.slip_b ?? 100;
+    form.order_type_a = s.value.order_type_a ?? "挂价";
+    form.order_type_b = s.value.order_type_b ?? "对手价";
   },
   { immediate: true }
 );
@@ -23,7 +24,8 @@ watch(
 async function saveConfig() {
   try {
     await store.setConfig(s.value.id, {
-      slip_a: form.slip_a, slip_b: form.slip_b, order_type: form.order_type,
+      slip_a: form.slip_a, slip_b: form.slip_b,
+      order_type_a: form.order_type_a, order_type_b: form.order_type_b,
     });
     message.success("参数已保存");
   } catch (e) {
@@ -67,23 +69,27 @@ async function removeStrategy() {
         <a-button size="small" @click="stopDirection('long')">做多停止</a-button>
       </div>
 
-      <a-divider orientation="left" plain class="div">交易参数</a-divider>
+      <a-divider orientation="left" plain class="div">交易参数（A/B 腿分别设置）</a-divider>
       <div class="grid">
         <div class="field">
+          <span>A腿 报单类型</span>
+          <a-select v-model:value="form.order_type_a" size="small" style="width: 100px" :options="ORDER_TYPES.map((v) => ({ value: v, label: v }))" />
+        </div>
+        <div class="field">
           <span>A腿滑点（跳）</span>
-          <a-input-number v-model:value="form.slip_a" :min="0" size="small" style="width: 90px" />
+          <a-input-number v-model:value="form.slip_a" :min="0" size="small" style="width: 80px" />
+        </div>
+        <div class="field">
+          <span>B腿 报单类型</span>
+          <a-select v-model:value="form.order_type_b" size="small" style="width: 100px" :options="ORDER_TYPES.map((v) => ({ value: v, label: v }))" />
         </div>
         <div class="field">
           <span>B腿滑点（跳）</span>
-          <a-input-number v-model:value="form.slip_b" :min="0" size="small" style="width: 90px" />
-        </div>
-        <div class="field">
-          <span>报单类型</span>
-          <a-select v-model:value="form.order_type" size="small" style="width: 110px" :options="ORDER_TYPES.map((v) => ({ value: v, label: v }))" />
+          <a-input-number v-model:value="form.slip_b" :min="0" size="small" style="width: 80px" />
         </div>
         <a-button size="small" type="primary" @click="saveConfig">保存参数</a-button>
       </div>
-      <p class="hint">市价类型以「对手价 + 滑点」限价实现；排队价不加滑点，成交速度可能变慢。</p>
+      <p class="hint">A 腿默认挂价排队（滑点 0）；B 腿默认对手价 + 100 跳滑点对冲。市价以「对手价 + 滑点」限价实现。</p>
     </template>
     <div v-else class="placeholder">点击上方表格选择一个策略后在此管理</div>
   </div>

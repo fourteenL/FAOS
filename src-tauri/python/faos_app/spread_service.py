@@ -120,7 +120,8 @@ class SpreadService:
             extra={
                 "slip_a": strategy.slip_a,
                 "slip_b": strategy.slip_b,
-                "order_type": strategy.order_type,
+                "order_type_a": strategy.order_type_a,
+                "order_type_b": strategy.order_type_b,
             },
         )
         if algoid:

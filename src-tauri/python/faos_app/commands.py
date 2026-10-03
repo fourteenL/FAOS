@@ -73,7 +73,8 @@ class LegBody(IdBody):
 class SetConfigBody(IdBody):
     slip_a: Optional[int] = None
     slip_b: Optional[int] = None
-    order_type: Optional[str] = None
+    order_type_a: Optional[str] = None
+    order_type_b: Optional[str] = None
 
 
 class StopDirectionBody(IdBody):
@@ -202,7 +203,7 @@ async def get_app_status(body: Empty, state: Annotated[AppState, State()]) -> Di
 @commands.command()
 async def set_strategy_config(body: SetConfigBody, state: Annotated[AppState, State()]) -> Strategy:
     return _guard(state, lambda: state.manager.set_config(
-        body.strategy_id, body.slip_a, body.slip_b, body.order_type))
+        body.strategy_id, body.slip_a, body.slip_b, body.order_type_a, body.order_type_b))
 
 
 @commands.command()

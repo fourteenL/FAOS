@@ -25,7 +25,7 @@ class StrategyManager:
         self.on_stop_hooks: list[Callable[[Strategy], None]] = []
         # 方向级停止扩展点：hook(strategy, side)，side ∈ {"short","long"}
         self.on_direction_stop_hooks: list[Callable[[Strategy, str], None]] = []
-        self.ORDER_TYPES = ("对手价", "排队价", "最新价", "市价")
+        self.ORDER_TYPES = ("对手价", "挂价", "最新价", "市价")
 
     @property
     def store(self) -> StrategyStore:
@@ -101,8 +101,8 @@ class StrategyManager:
         return s
 
     def set_config(self, strategy_id: int, slip_a=None,
-                   slip_b=None, order_type=None) -> Strategy:
-        """策略交易参数：AB 腿滑点与报单类型。"""
+                   slip_b=None, order_type_a=None, order_type_b=None) -> Strategy:
+        """策略交易参数：AB 腿各自的滑点与报单类型。"""
         s = self._require(strategy_id)
         if slip_a is not None:
             if slip_a < 0:
@@ -112,10 +112,11 @@ class StrategyManager:
             if slip_b < 0:
                 raise ValueError("B 腿滑点不能为负数")
             s.slip_b = slip_b
-        if order_type is not None:
-            if order_type not in self.ORDER_TYPES:
-                raise ValueError(f"报单类型无效，应为 {'/'.join(self.ORDER_TYPES)}")
-            s.order_type = order_type
+        for field, val in (("order_type_a", order_type_a), ("order_type_b", order_type_b)):
+            if val is not None:
+                if val not in self.ORDER_TYPES:
+                    raise ValueError(f"报单类型无效，应为 {'/'.join(self.ORDER_TYPES)}")
+                setattr(s, field, val)
         self._store.update(s)
         self._push.strategy(s)
         return s

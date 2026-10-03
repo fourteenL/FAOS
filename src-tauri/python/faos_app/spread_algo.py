@@ -10,8 +10,8 @@ from vnpy_spreadtrading.algo import SpreadTakerAlgo
 
 
 def leg_order_price(tick, pricetick: float, slip: int, order_type: str, side: str) -> float:
-    """腿委托定价。side: "buy"|"sell"；未知类型回落对手价。"""
-    if order_type == "排队价":
+    """腿委托定价。side: "buy"|"sell"；未知类型回落对手价。挂价=排队价。"""
+    if order_type in ("挂价", "排队价"):
         return tick.bid_price_1 if side == "buy" else tick.ask_price_1
     if order_type == "最新价":
         base = tick.last_price or (tick.ask_price_1 if side == "buy" else tick.bid_price_1)
@@ -30,6 +30,11 @@ class FaosTakerAlgo(SpreadTakerAlgo):
         slip = extra.get("slip_a") if vt_symbol == self.spread.active_leg.vt_symbol else extra.get("slip_b")
         return slip if slip is not None else self.payup
 
+    def _order_type_for(self, vt_symbol: str) -> str:
+        extra = self.extra or {}
+        ot = extra.get("order_type_a") if vt_symbol == self.spread.active_leg.vt_symbol else extra.get("order_type_b")
+        return ot or "对手价"
+
     def send_leg_order(self, vt_symbol: str, leg_volume: float) -> None:
         leg = self.spread.legs[vt_symbol]
         leg_tick = self.get_tick(vt_symbol)
@@ -37,7 +42,7 @@ class FaosTakerAlgo(SpreadTakerAlgo):
         if not (leg_tick and leg_contract):
             return
         slip = self._slip_for(vt_symbol)
-        order_type = (self.extra or {}).get("order_type") or "对手价"
+        order_type = self._order_type_for(vt_symbol)
         if leg_volume > 0:
             price = leg_order_price(leg_tick, leg_contract.pricetick, slip, order_type, "buy")
             self.send_order(leg.vt_symbol, price, abs(leg_volume), Direction.LONG)

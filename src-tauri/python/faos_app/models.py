@@ -4,7 +4,7 @@ import enum
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel, Field, computed_field
+from pydantic import BaseModel, Field, computed_field, model_validator
 
 
 class TriggerAction(str, enum.Enum):
@@ -42,9 +42,20 @@ class Strategy(BaseModel):
     triggers: list[Trigger] = []
     held_units: float = 0  # 已开价差份数（净）
     active_algos: list[str] = []
-    slip_a: int = 5  # A 腿（主动）滑点，跳
-    slip_b: int = 5  # B 腿（被动）滑点，跳
-    order_type: str = "对手价"  # 报单类型：对手价/排队价/最新价/市价
+    slip_a: int = 0  # A 腿（主动）滑点，跳（挂价排队默认不加滑点）
+    slip_b: int = 100  # B 腿（被动）滑点，跳（对冲快速成交）
+    order_type_a: str = "挂价"  # A 腿报单类型：挂价(排队)/对手价/最新价/市价
+    order_type_b: str = "对手价"  # B 腿报单类型
+
+    @model_validator(mode="before")
+    @classmethod
+    def _migrate_order_type(cls, data):
+        """旧记录的统一 order_type 迁移为 A/B 两字段。"""
+        if isinstance(data, dict) and "order_type" in data:
+            old = data.pop("order_type")
+            data.setdefault("order_type_a", old)
+            data.setdefault("order_type_b", old)
+        return data
     created_at: str = Field(default_factory=lambda: datetime.now().isoformat(timespec="seconds"))
 
     @computed_field  # type: ignore[prop-decorator]
