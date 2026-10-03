@@ -72,62 +72,72 @@ function canSubscribe(row) {
 </script>
 
 <template>
-  <a-modal v-model:open="visible" title="订阅管理" width="440" :get-container="false" :footer="null" :mask-closable="true">
-    <div class="modal-body">
-    <a-tabs v-model:active-key="activeTab" size="small">
-      <a-tab-pane key="pair" tab="自行创建合约对">
-        <a-form layout="inline">
-          <a-form-item label="A腿"><a-input v-model:value="form.leg_a" placeholder="如 ag2702" style="width: 110px" /></a-form-item>
-          <a-form-item label="B腿"><a-input v-model:value="form.leg_b" placeholder="如 ag2612" style="width: 110px" /></a-form-item>
-          <a-form-item label="单份"><a-input-number v-model:value="form.single_lots" :min="1" style="width: 70px" /></a-form-item>
-          <a-form-item label="总份"><a-input-number v-model:value="form.total_lots" :min="1" style="width: 70px" /></a-form-item>
-          <a-form-item><a-button type="primary" :loading="submitting" @click="submit">订阅</a-button></a-form-item>
-        </a-form>
-      </a-tab-pane>
-      <a-tab-pane key="product" tab="品种自动匹配">
-        <a-form layout="inline">
-          <a-form-item label="品种"><a-input v-model:value="form.product" placeholder="如 ag" style="width: 110px" /></a-form-item>
-          <a-form-item label="单份"><a-input-number v-model:value="form.single_lots" :min="1" style="width: 70px" /></a-form-item>
-          <a-form-item label="总份"><a-input-number v-model:value="form.total_lots" :min="1" style="width: 70px" /></a-form-item>
-          <a-form-item>
-            <span class="hint">展开该品种全部在市合约组合</span>
-            <a-button type="primary" :loading="submitting" @click="submit" style="margin-left: 8px">订阅</a-button>
-          </a-form-item>
-        </a-form>
-      </a-tab-pane>
-    </a-tabs>
-
-    <a-divider orientation="left" plain class="div">当前订阅</a-divider>
-    <a-table
-      :columns="[
-        { title: '编号', dataIndex: 'id', key: 'id', width: 60, align: 'center' },
-        { title: '合约对', dataIndex: 'pair', key: 'pair', align: 'center' },
-        { title: '状态', key: 'status', width: 90, align: 'center' },
-        { title: '操作', key: 'action', width: 130, align: 'center' },
-      ]"
-      :data-source="store.strategies"
-      :pagination="{ pageSize: 5, size: 'small', hideOnSinglePage: false }"
-      size="small"
-      row-key="id"
-    >
-      <template #bodyCell="{ column, record }">
-        <template v-if="column.key === 'status'">{{ STATUS_ZH[record.status] || record.status }}</template>
-        <template v-else-if="column.key === 'action'">
-          <a-space>
-            <a v-if="canSubscribe(record)" @click="resub(record.id)">重新订阅</a>
-            <a-popconfirm title="删除该策略并退订行情？" @confirm="remove(record.id)">
-              <a style="color: #cf1322">删除</a>
-            </a-popconfirm>
-          </a-space>
-        </template>
-      </template>
-    </a-table>
+  <div v-if="visible" class="fpanel">
+    <div class="fpanel-card">
+      <div class="fpanel-head">
+        <span>订阅管理</span>
+        <a class="close" @click="visible = false">×</a>
       </div>
-</a-modal>
+      <a-tabs v-model:active-key="activeTab" size="small">
+        <a-tab-pane key="pair" tab="自行创建合约对">
+          <a-form layout="inline">
+            <a-form-item label="A腿"><a-input v-model:value="form.leg_a" placeholder="如 ag2702" style="width: 100px" /></a-form-item>
+            <a-form-item label="B腿"><a-input v-model:value="form.leg_b" placeholder="如 ag2612" style="width: 100px" /></a-form-item>
+            <a-form-item label="单份"><a-input-number v-model:value="form.single_lots" :min="1" style="width: 64px" /></a-form-item>
+            <a-form-item label="总份"><a-input-number v-model:value="form.total_lots" :min="1" style="width: 64px" /></a-form-item>
+            <a-form-item><a-button type="primary" :loading="submitting" @click="submit">订阅</a-button></a-form-item>
+          </a-form>
+        </a-tab-pane>
+        <a-tab-pane key="product" tab="品种自动匹配">
+          <a-form layout="inline">
+            <a-form-item label="品种"><a-input v-model:value="form.product" placeholder="如 ag" style="width: 100px" /></a-form-item>
+            <a-form-item label="单份"><a-input-number v-model:value="form.single_lots" :min="1" style="width: 64px" /></a-form-item>
+            <a-form-item label="总份"><a-input-number v-model:value="form.total_lots" :min="1" style="width: 64px" /></a-form-item>
+            <a-form-item>
+              <span class="hint">展开该品种全部在市合约组合</span>
+              <a-button type="primary" :loading="submitting" @click="submit" style="margin-left: 8px">订阅</a-button>
+            </a-form-item>
+          </a-form>
+        </a-tab-pane>
+      </a-tabs>
+
+      <a-divider orientation="left" plain class="div">当前订阅</a-divider>
+      <a-table
+        :columns="[
+          { title: '编号', dataIndex: 'id', key: 'id', width: 56, align: 'center' },
+          { title: '合约对', dataIndex: 'pair', key: 'pair', align: 'center' },
+          { title: '状态', key: 'status', width: 84, align: 'center' },
+          { title: '操作', key: 'action', width: 120, align: 'center' },
+        ]"
+        :data-source="store.strategies"
+        :pagination="{ pageSize: 5, size: 'small' }"
+        size="small"
+        row-key="id"
+      >
+        <template #bodyCell="{ column, record }">
+          <template v-if="column.key === 'status'">{{ STATUS_ZH[record.status] || record.status }}</template>
+          <template v-else-if="column.key === 'action'">
+            <a-space>
+              <a v-if="canSubscribe(record)" @click="resub(record.id)">重新订阅</a>
+              <a-popconfirm title="删除该策略并退订行情？" @confirm="remove(record.id)">
+                <a style="color: #cf1322">删除</a>
+              </a-popconfirm>
+            </a-space>
+          </template>
+        </template>
+      </a-table>
+    </div>
+  </div>
 </template>
 
-.modal-body { max-height: 62vh; overflow-y: auto; }
 <style scoped>
+.fpanel { position: fixed; inset: 0; z-index: 1000; pointer-events: none;
+  display: flex; align-items: flex-start; justify-content: center; padding-top: 56px; }
+.fpanel-card { pointer-events: auto; width: 440px; max-height: 70vh; overflow-y: auto;
+  background: #fff; border-radius: 8px; box-shadow: 0 6px 24px rgba(0,0,0,.18); padding: 12px 14px; }
+.fpanel-head { display: flex; justify-content: space-between; font-weight: 600;
+  font-size: 14px; margin-bottom: 8px; }
+.close { font-size: 18px; color: #999; line-height: 1; }
 .hint { color: #999; font-size: 12px; }
 .div { margin: 12px 0 6px; font-size: 12px; }
 </style>
