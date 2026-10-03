@@ -72,7 +72,7 @@ function canSubscribe(row) {
 </script>
 
 <template>
-  <a-drawer v-model:open="visible" title="订阅管理" width="560" :get-container="false">
+  <a-modal v-model:open="visible" title="订阅管理" width="640" :get-container="false" :footer="null" :mask-closable="true">
     <a-tabs v-model:active-key="activeTab" size="small">
       <a-tab-pane key="pair" tab="自行创建合约对">
         <a-form layout="inline">
@@ -121,7 +121,7 @@ function canSubscribe(row) {
         </template>
       </template>
     </a-table>
-  </a-drawer>
+  </a-modal>
 </template>
 
 <style scoped>

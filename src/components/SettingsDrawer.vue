@@ -43,7 +43,7 @@ async function save() {
 </script>
 
 <template>
-  <a-drawer v-model:open="visible" title="连接与算法设置" width="520" :mask-closable="false" :get-container="false">
+  <a-modal v-model:open="visible" title="连接与算法设置" width="560" :get-container="false" :mask-closable="false">
     <a-spin :spinning="loading">
       <a-form layout="vertical">
         <a-divider orientation="left" plain>MQTT 行情</a-divider>
@@ -83,7 +83,7 @@ async function save() {
         <a-button type="primary" @click="save">保存</a-button>
       </a-space>
     </template>
-  </a-drawer>
+  </a-modal>
 </template>
 
 <style scoped>
