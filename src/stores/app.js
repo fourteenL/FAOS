@@ -40,6 +40,8 @@ export const useAppStore = defineStore("app", {
     productFilter: null,
     productTicks: {},
     fillRequest: null,
+    cancelledSet: {},  // vt_orderid 去重
+    cancelByPair: {},  // pair -> { vt_symbol: 已撤笔数 }
     loggedIn: false,
     bound: false,
   }),
@@ -113,6 +115,17 @@ export const useAppStore = defineStore("app", {
         const i = this.orders.findIndex((o) => o.vt_orderid === p.vt_orderid);
         if (i >= 0) this.orders.splice(i, 1, p);
         else this.orders.unshift(p);
+        // A/B 腿已撤销委托累计计数（同一委托多次回报按 vt_orderid 去重）
+        if (p.status_zh === "已撤销" || p.status === "已撤销" || p.status === "CANCELLED") {
+          if (!this.cancelledSet[p.vt_orderid]) {
+            this.cancelledSet[p.vt_orderid] = true;
+            const pair = p.pair || this.pairOfSymbol(p.vt_symbol);
+            if (pair) {
+              const bySym = (this.cancelByPair[pair] = this.cancelByPair[pair] || {});
+              bySym[p.vt_symbol] = (bySym[p.vt_symbol] || 0) + 1;
+            }
+          }
+        }
       });
       listenPy("trade", (p) => {
         this.trades.unshift(p);
@@ -131,6 +144,14 @@ export const useAppStore = defineStore("app", {
     },
     select(id) {
       this.selectedId = id;
+    },
+    pairOfSymbol(vtSymbol) {
+      const leg = String(vtSymbol || "").split(".")[0];
+      const s = this.strategies.find((x) => x.leg_a === leg || x.leg_b === leg);
+      return s ? s.pair : null;
+    },
+    cancelCount(pair, vtSymbol) {
+      return (this.cancelByPair[pair] || {})[vtSymbol] || 0;
     },
     fillAllQuotes(values) {
       const seq = (this.fillRequest?.seq || 0) + 1;

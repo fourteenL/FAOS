@@ -2,7 +2,7 @@
 import { computed, ref, watch } from "vue";
 import { useAppStore } from "../stores/app.js";
 
-const emit = defineEmits(["cancel-leg", "select"]);
+const emit = defineEmits(["select"]);
 const store = useAppStore();
 
 const STATUS_ZH = {
@@ -106,8 +106,8 @@ function fillAll(row) {
   store.fillRequest = { action: "all", seq: (store.fillRequest?.seq || 0) + 1, values };
 }
 
-function cancelLegA(row) {
-  emit("cancel-leg", row.id, "A");
+function cancelCountOf(row) {
+  return store.cancelCount(row.pair, `${row.leg_a}.SHFE`);
 }
 
 const ACTION_BY_KEY = {
@@ -133,9 +133,7 @@ const ACTION_BY_KEY = {
       <span>{{ column.title }}</span>
     </template>
     <template #bodyCell="{ column, record }">
-      <template v-if="column.key === 'cancel_a'">
-        <a @click.stop="cancelLegA(record)">撤单</a>
-      </template>
+      <template v-if="column.key === 'cancel_a'">{{ cancelCountOf(record) }}</template>
       <template v-else-if="column.key === 'short_open'">
         <span :class="colorOf(record, 'short_open')">{{ fmt(quoteOf(record, "short_open")) }}</span>
       </template>

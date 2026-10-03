@@ -51,14 +51,6 @@ function watchNotices() {
 }
 watchNotices();
 
-async function onCancelLeg(id, leg) {
-  try {
-    const r = await store.cancelLegOrders(id, leg);
-    message.success(`已撤销 ${r.cancelled} 笔委托`);
-  } catch (e) {
-    message.error(String(e));
-  }
-}
 </script>
 
 <template>
@@ -79,7 +71,7 @@ async function onCancelLeg(id, leg) {
         <template #top>
           <div style="padding: 8px">
             <ProductFilter />
-            <MarketTable @cancel-leg="onCancelLeg" />
+            <MarketTable />
           </div>
         </template>
         <template #bottom>
