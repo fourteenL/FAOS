@@ -73,6 +73,7 @@ function canSubscribe(row) {
 
 <template>
   <a-modal v-model:open="visible" title="订阅管理" width="440" :get-container="false" :footer="null" :mask-closable="true">
+    <div class="modal-body">
     <a-tabs v-model:active-key="activeTab" size="small">
       <a-tab-pane key="pair" tab="自行创建合约对">
         <a-form layout="inline">
@@ -105,7 +106,7 @@ function canSubscribe(row) {
         { title: '操作', key: 'action', width: 130, align: 'center' },
       ]"
       :data-source="store.strategies"
-      :pagination="false"
+      :pagination="{ pageSize: 5, size: 'small', hideOnSinglePage: false }"
       size="small"
       row-key="id"
     >
@@ -121,9 +122,11 @@ function canSubscribe(row) {
         </template>
       </template>
     </a-table>
-  </a-modal>
+      </div>
+</a-modal>
 </template>
 
+.modal-body { max-height: 62vh; overflow-y: auto; }
 <style scoped>
 .hint { color: #999; font-size: 12px; }
 .div { margin: 12px 0 6px; font-size: 12px; }

@@ -44,6 +44,7 @@ async function save() {
 
 <template>
   <a-modal v-model:open="visible" title="连接与算法设置" width="420" :get-container="false" :mask-closable="false">
+    <div class="modal-body">
     <a-spin :spinning="loading">
       <a-form layout="vertical">
         <a-divider orientation="left" plain>MQTT 行情</a-divider>
@@ -77,6 +78,7 @@ async function save() {
         </div>
       </a-form>
     </a-spin>
+    </div>
     <template #footer>
       <a-space>
         <a-button @click="visible = false">取消</a-button>
@@ -86,6 +88,7 @@ async function save() {
   </a-modal>
 </template>
 
+.modal-body { max-height: 62vh; overflow-y: auto; }
 <style scoped>
 .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0 12px; }
 .span2 { grid-column: span 2; }
