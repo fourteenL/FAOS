@@ -40,6 +40,7 @@ export const useAppStore = defineStore("app", {
     productFilter: null,
     productTicks: {},
     fillRequest: null,
+    loggedIn: false,
     bound: false,
   }),
   getters: {
@@ -175,6 +176,13 @@ export const useAppStore = defineStore("app", {
     },
     async cancelLegOrders(id, leg) {
       return call("cancel_leg_orders", { strategy_id: id, leg });
+    },
+    async login(body) {
+      await call("login", body);
+      this.loggedIn = true;
+    },
+    async getLoginState() {
+      return call("get_login_state", {});
     },
     async connectMqtt() {
       await call("connect_mqtt", {});

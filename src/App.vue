@@ -9,10 +9,12 @@ import SubscriptionDrawer from "./components/SubscriptionDrawer.vue";
 import SplitLayout from "./components/SplitLayout.vue";
 import OrderPanel from "./components/OrderPanel.vue";
 import SettingsDrawer from "./components/SettingsDrawer.vue";
+import Login from "./components/Login.vue";
 import ProductFilter from "./components/ProductFilter.vue";
 
 const store = useAppStore();
 const settingsDrawer = ref(null);
+const loggedIn = ref(false);
 const subscriptionDrawer = ref(null);
 
 function openSettings() {
@@ -25,7 +27,7 @@ function openSubscription() {
 
 onMounted(async () => {
   try {
-    await store.init();
+    await store.init(); // 状态/事件绑定先行（登录页也需要连接状态）
   } catch (e) {
     message.error("后端初始化失败: " + e);
   }
@@ -60,7 +62,8 @@ async function onCancelLeg(id, leg) {
 </script>
 
 <template>
-  <a-layout style="height: 100vh">
+  <Login v-if="!loggedIn" @logged-in="loggedIn = true" />
+  <a-layout v-else style="height: 100vh">
     <a-layout-header style="height: auto; padding: 0; background: #fff; color: #333">
       <StatusBanner>
         <template #actions>

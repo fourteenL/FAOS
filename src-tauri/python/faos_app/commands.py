@@ -9,6 +9,7 @@ from typing import Annotated, Optional
 from pydantic import BaseModel, RootModel
 from pytauri import Commands, State
 
+from faos_app.auth import apply_login
 from faos_app.config import (
     Settings,
     masked_settings,
@@ -68,6 +69,28 @@ class CancelTriggerBody(IdBody):
 
 class LegBody(IdBody):
     leg: str  # "A" | "B"
+
+
+class LoginBody(BaseModel):
+    ctp_account: str
+    ctp_password: str
+    counter: str = "测试"
+    mqtt_host: str = ""
+    remember: bool = False
+    offline: bool = False
+
+
+class LoginResp(BaseModel):
+    ok: bool = True
+    offline: bool = False
+
+
+class LoginStateResp(BaseModel):
+    ctp_account: str = ""
+    ctp_password: str = ""
+    counter: str = "测试"
+    mqtt_host: str = ""
+    remembered: bool = False
 
 
 class SetConfigBody(IdBody):
@@ -198,6 +221,38 @@ async def cancel_leg_orders(body: LegBody, state: Annotated[AppState, State()]) 
 @commands.command()
 async def get_app_status(body: Empty, state: Annotated[AppState, State()]) -> DictResp:
     return DictResp(state.app_status())
+
+
+@commands.command()
+async def login(body: LoginBody, state: Annotated[AppState, State()]) -> LoginResp:
+    """登录：派生 MQTT 凭据（u+CTP账号），连接 MQTT；offline=False 时同时连 CTP。"""
+    apply_login(state.settings, body.ctp_account, body.ctp_password,
+                body.counter, body.mqtt_host)
+    if body.remember:
+        save_settings(state.settings, settings_path())  # 记住我：凭据落盘
+    state.feed.start()  # 幂等
+    if not body.offline:
+        if state.ctp is None:
+            raise ValueError("CTP 服务初始化失败，请查看日志")
+        state.ctp.connect(state.settings.ctp)
+    state.pusher.notice("info", "离线登录：仅行情连接" if body.offline else "登录成功：行情与交易连接中")
+    return LoginResp(ok=True, offline=body.offline)
+
+
+@commands.command()
+async def get_login_state(body: Empty, state: Annotated[AppState, State()]) -> LoginStateResp:
+    """登录页预填：记住我的凭据（remembered 标记是否来自已保存配置）。"""
+    from faos_app.config import MASK
+
+    s = state.settings
+    remembered = bool(s.ctp.用户名)
+    return LoginStateResp(
+        ctp_account=s.ctp.用户名,
+        ctp_password=s.ctp.密码,
+        counter=s.ctp.柜台环境,
+        mqtt_host=s.mqtt.host,
+        remembered=remembered,
+    )
 
 
 @commands.command()
