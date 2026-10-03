@@ -43,7 +43,7 @@ async function save() {
 </script>
 
 <template>
-  <div v-if="visible" class="fpanel">
+  <div v-if="visible" class="fpanel" @click.self="visible = false">
     <div class="fpanel-card">
       <div class="fpanel-head">
         <span>连接与算法设置</span>
@@ -93,14 +93,14 @@ async function save() {
 </template>
 
 <style scoped>
-.fpanel { position: fixed; inset: 0; z-index: 1000; pointer-events: none;
+.fpanel { position: fixed; inset: 0; z-index: 1000; background: rgba(0,0,0,.45);
   display: flex; align-items: flex-start; justify-content: center; padding-top: 56px; }
-.fpanel-card { pointer-events: auto; width: 420px; max-height: 70vh; overflow-y: auto;
+.fpanel-card { width: 420px; max-height: 70vh; overflow-y: auto;
   background: #fff; border-radius: 8px; box-shadow: 0 6px 24px rgba(0,0,0,.18); padding: 12px 14px; }
 .fpanel-head { display: flex; justify-content: space-between; font-weight: 600;
   font-size: 14px; margin-bottom: 8px; }
 .close { font-size: 18px; color: #999; line-height: 1; }
-.modal-body { max-height: 60vh; overflow-y: auto; }
+.modal-body { padding-right: 2px; }
 .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0 12px; }
 .span2 { grid-column: span 2; }
 .fbtns { display: flex; gap: 8px; justify-content: flex-end; margin-top: 10px; }
