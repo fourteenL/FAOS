@@ -45,10 +45,10 @@ async function saveConfig() {
   }
 }
 
-async function stopDirection(side) {
+async function stopAll() {
   try {
-    await store.stopDirection(s.value.id, side);
-    message.success(side === "short" ? "做空侧已停止（撤单+停算法）" : "做多侧已停止（撤单+停算法）");
+    await store.stopStrategy(s.value.id);
+    message.success("已停止（撤触发单 + 停算法），持仓保留");
   } catch (e) {
     message.error(String(e));
   }
@@ -77,8 +77,7 @@ async function removeStrategy() {
         <a-popconfirm title="删除该策略并退订行情？" @confirm="removeStrategy">
           <a-button danger size="small">行情删除</a-button>
         </a-popconfirm>
-        <a-button size="small" @click="stopDirection('short')">做空停止</a-button>
-        <a-button size="small" @click="stopDirection('long')">做多停止</a-button>
+        <a-button size="small" @click="stopAll">停止</a-button>
       </div>
 
       <a-divider orientation="left" plain class="div">交易参数（A/B 腿分别设置）</a-divider>
