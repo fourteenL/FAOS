@@ -200,9 +200,14 @@ class StrategyManager:
     # -- 重启恢复 ---------------------------------------------------------------
 
     def recover(self) -> None:
-        """启动恢复：清除运行中算法状态；触发单保留并重挂（armed）。"""
+        """启动恢复：清除运行中算法状态；触发单保留并重挂（armed）；
+        旧默认交易参数（5/5/对手价/对手价）归一为新默认（A挂价+0 / B对手价+100）。"""
         for s in self._store.list():
             changed = False
+            if (s.slip_a, s.slip_b, s.order_type_a, s.order_type_b) == (5, 5, "对手价", "对手价"):
+                s.slip_a, s.slip_b = 0, 100
+                s.order_type_a, s.order_type_b = "挂价", "对手价"
+                changed = True
             if s.active_algos:
                 s.active_algos = []
                 self._push.notice(
