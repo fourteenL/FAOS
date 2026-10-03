@@ -74,8 +74,21 @@ async function place(action, spread, lots) {
     return;
   }
   try {
+    if (action === "open_short" || action === "open_long") {
+      // 重启式下单：先停止当前策略（撤触发单+停算法，持仓保留），再按新价格挂单
+      await store.stopStrategy(s.value.id);
+    }
     await store.placeTrigger(s.value.id, { action, spread, lots: lots ?? s.value.single_lots });
     message.success("触发单已挂出，等待行情触发");
+  } catch (e) {
+    message.error(String(e));
+  }
+}
+
+async function stopCurrent() {
+  try {
+    await store.stopStrategy(s.value.id);
+    message.success("已停止（撤触发单 + 停算法），持仓保留");
   } catch (e) {
     message.error(String(e));
   }
@@ -102,14 +115,15 @@ function fmt(v) {
         <div class="line">
           <label>空开差价</label>
           <a-input-number v-model:value="form.open_short" :min="0" :step="step" :precision="precision" size="small" style="width: 90px" />
-          <a-button size="small" type="primary" danger :disabled="!!openTrigger"
-            @click="place('open_short', form.open_short)">挂做空触发单</a-button>
+          <a-button size="small" type="primary" danger
+            @click="place('open_short', form.open_short)">做空</a-button>
         </div>
         <div class="line">
           <label>空平差价</label>
           <a-input-number v-model:value="form.close_short" :min="0" :step="step" :precision="precision" size="small" style="width: 90px" />
           <a-button size="small" :disabled="!hasShort || !!closeShortTrigger"
-            @click="place('close_short', form.close_short)">挂空平触发单</a-button>
+            @click="place('close_short', form.close_short)">空平</a-button>
+          <a-button size="small" @click="stopCurrent">停止</a-button>
         </div>
       </div>
       <div class="zone">
@@ -117,14 +131,15 @@ function fmt(v) {
         <div class="line">
           <label>多开差价</label>
           <a-input-number v-model:value="form.open_long" :min="0" :step="step" :precision="precision" size="small" style="width: 90px" />
-          <a-button size="small" type="primary" :disabled="!!openTrigger"
-            @click="place('open_long', form.open_long)">挂做多触发单</a-button>
+          <a-button size="small" type="primary"
+            @click="place('open_long', form.open_long)">做多</a-button>
         </div>
         <div class="line">
           <label>多平差价</label>
           <a-input-number v-model:value="form.close_long" :min="0" :step="step" :precision="precision" size="small" style="width: 90px" />
           <a-button size="small" :disabled="!hasLong || !!closeLongTrigger"
-            @click="place('close_long', form.close_long)">挂多平触发单</a-button>
+            @click="place('close_long', form.close_long)">多平</a-button>
+          <a-button size="small" @click="stopCurrent">停止</a-button>
         </div>
       </div>
     </div>
