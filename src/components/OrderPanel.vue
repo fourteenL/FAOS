@@ -6,8 +6,6 @@ import LegCard from "./LegCard.vue";
 
 const store = useAppStore();
 const form = reactive({ open_short: null, close_short: null, open_long: null, close_long: null });
-const singleLots = ref(1);
-const totalLots = ref(1);
 const legs = ref({ leg_a: null, leg_b: null });
 
 const s = computed(() => store.selected);
@@ -16,8 +14,6 @@ watch(
   () => s.value?.id,
   () => {
     if (!s.value) return;
-    singleLots.value = s.value.single_lots;
-    totalLots.value = s.value.total_lots;
     refreshLegs();
   },
   { immediate: true }
@@ -78,7 +74,7 @@ async function place(action, spread, lots) {
     return;
   }
   try {
-    await store.placeTrigger(s.value.id, { action, spread, lots: lots ?? singleLots.value });
+    await store.placeTrigger(s.value.id, { action, spread, lots: lots ?? s.value.single_lots });
     message.success("触发单已挂出，等待行情触发");
   } catch (e) {
     message.error(String(e));
@@ -93,15 +89,6 @@ async function cancelTrigger(triggerId) {
   }
 }
 
-async function saveLots() {
-  try {
-    await store.setLots(s.value.id, { single_lots: singleLots.value, total_lots: totalLots.value });
-    message.success("已保存");
-  } catch (e) {
-    message.error(String(e));
-  }
-}
-
 function fmt(v) {
   return v == null ? "--" : Number(v).toFixed(2);
 }
@@ -109,15 +96,6 @@ function fmt(v) {
 
 <template>
   <div v-if="s" class="panel">
-    <div class="lots-bar">
-      <span>单份</span>
-      <a-input-number v-model:value="singleLots" :min="1" size="small" style="width: 70px" />
-      <span>总份</span>
-      <a-input-number v-model:value="totalLots" :min="1" size="small" style="width: 70px" />
-      <a-button size="small" @click="saveLots">保存</a-button>
-      <span class="muted">净持仓 {{ Math.abs(s.held_units) }} 份（{{ s.held_units < 0 ? "空头价差" : s.held_units > 0 ? "多头价差" : "无" }}）</span>
-    </div>
-
     <div class="zones">
       <div class="zone">
         <div class="zone-title short">做空（卖A买B）</div>

@@ -4,10 +4,11 @@ from faos_app.config import Settings
 
 
 def apply_login(settings: Settings, ctp_account: str, ctp_password: str,
-                counter: str, mqtt_host: str) -> None:
+                counter: str, mqtt_host: str, broker: str = "9999") -> None:
     account = ctp_account.strip()
     settings.ctp.用户名 = account
     settings.ctp.密码 = ctp_password
+    settings.ctp.经纪商代码 = broker.strip() or "9999"
     settings.ctp.柜台环境 = counter if counter in ("实盘", "测试") else "测试"
     settings.mqtt.host = mqtt_host.strip()
     settings.mqtt.user = f"u{account}"

@@ -11,6 +11,7 @@ const form = reactive({
   ctp_password: "",
   counter: "测试",
   mqtt_host: "",
+  broker: "9999",
   remember: false,
 });
 const remembered = ref(false);
@@ -23,6 +24,7 @@ onMounted(async () => {
     form.ctp_password = st.ctp_password || "";
     form.counter = st.counter || "测试";
     form.mqtt_host = st.mqtt_host || "";
+    form.broker = st.broker || "9999";
     form.remember = remembered.value = st.remembered;
   } catch (e) {
     /* 预填失败不阻塞登录 */
@@ -45,6 +47,7 @@ async function doLogin(offline) {
       ctp_password: form.ctp_password,
       counter: form.counter,
       mqtt_host: form.mqtt_host.trim(),
+      broker: form.broker.trim(),
       remember: form.remember,
       offline,
     });
@@ -70,13 +73,16 @@ async function doLogin(offline) {
           <a-input-password v-model:value="form.ctp_password" placeholder="CTP 密码（同时用于 MQTT）" size="large" @pressEnter="doLogin(false)" />
         </a-form-item>
         <div class="row2">
+          <a-form-item label="经纪商代码" class="half">
+            <a-input v-model:value="form.broker" placeholder="如 9999" size="large" @pressEnter="doLogin(false)" />
+          </a-form-item>
           <a-form-item label="柜台环境" class="half">
             <a-select v-model:value="form.counter" size="large" :options="[{ value: '测试', label: '测试（SimNow）' }, { value: '实盘', label: '实盘' }]" />
           </a-form-item>
-          <a-form-item label="行情服务器" class="half">
-            <a-input v-model:value="form.mqtt_host" placeholder="MQTT 服务器地址" size="large" @pressEnter="doLogin(false)" />
-          </a-form-item>
         </div>
+        <a-form-item label="行情服务器">
+          <a-input v-model:value="form.mqtt_host" placeholder="MQTT 服务器地址" size="large" @pressEnter="doLogin(false)" />
+        </a-form-item>
         <a-checkbox v-model:checked="form.remember">记住我（保存账号密码到本机）</a-checkbox>
         <div class="btns">
           <a-button type="primary" size="large" class="btn" :loading="loading && !form.offline" @click="doLogin(false)">登 录</a-button>

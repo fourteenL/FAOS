@@ -8,6 +8,7 @@ const s = computed(() => store.selected);
 
 const ORDER_TYPES = ["对手价", "挂价", "最新价", "市价"];
 const form = reactive({ slip_a: 0, slip_b: 100, order_type_a: "挂价", order_type_b: "对手价" });
+const lots = reactive({ single: 1, total: 10 });
 
 watch(
   () => s.value?.id,
@@ -17,9 +18,20 @@ watch(
     form.slip_b = s.value.slip_b ?? 100;
     form.order_type_a = s.value.order_type_a ?? "挂价";
     form.order_type_b = s.value.order_type_b ?? "对手价";
+    lots.single = s.value.single_lots ?? 1;
+    lots.total = s.value.total_lots ?? 10;
   },
   { immediate: true }
 );
+
+async function saveLots() {
+  try {
+    await store.setLots(s.value.id, { single_lots: lots.single, total_lots: lots.total });
+    message.success("份数已保存");
+  } catch (e) {
+    message.error(String(e));
+  }
+}
 
 async function saveConfig() {
   try {
@@ -90,6 +102,20 @@ async function removeStrategy() {
         <a-button size="small" type="primary" @click="saveConfig">保存参数</a-button>
       </div>
       <p class="hint">A 腿默认挂价排队（滑点 0）；B 腿默认对手价 + 100 跳滑点对冲。市价以「对手价 + 滑点」限价实现。</p>
+
+      <a-divider orientation="left" plain class="div">下单份数</a-divider>
+      <div class="grid">
+        <div class="field">
+          <span>单份（每次触发手数）</span>
+          <a-input-number v-model:value="lots.single" :min="1" size="small" style="width: 90px" />
+        </div>
+        <div class="field">
+          <span>总份（累计上限）</span>
+          <a-input-number v-model:value="lots.total" :min="1" size="small" style="width: 90px" />
+        </div>
+        <a-button size="small" type="primary" @click="saveLots">保存份数</a-button>
+      </div>
+      <p class="hint">净持仓 {{ Math.abs(s.held_units) }} 份（{{ s.held_units < 0 ? "空头价差" : s.held_units > 0 ? "多头价差" : "无" }}），上限校验：|净持仓| + 单份 ≤ 总份。</p>
     </template>
     <div v-else class="placeholder">点击上方表格选择一个策略后在此管理</div>
   </div>
