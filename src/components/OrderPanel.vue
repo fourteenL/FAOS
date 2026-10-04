@@ -62,6 +62,11 @@ watch(
   { immediate: true }
 );
 
+// 无触发单且无运行算法 → 无可停止的活动，停止按钮置灰
+const stopDisabled = computed(() => {
+      const st = s.value;
+      return !st || (st.triggers.length === 0 && st.active_algos.length === 0);
+    });
 const hasShort = computed(() => (s.value?.held_units ?? 0) < 0);
 const hasLong = computed(() => (s.value?.held_units ?? 0) > 0);
 const openTrigger = computed(() => s.value?.triggers.find((t) => t.action.startsWith("open_")));
@@ -123,7 +128,7 @@ function fmt(v) {
           <a-input-number v-model:value="form.close_short" :min="0" :step="step" :precision="precision" size="small" style="width: 90px" />
           <a-button size="small" :disabled="!hasShort || !!closeShortTrigger"
             @click="place('close_short', form.close_short)">空平</a-button>
-          <a-button size="small" @click="stopCurrent">停止</a-button>
+          <a-button size="small" :disabled="stopDisabled" @click="stopCurrent">停止</a-button>
         </div>
       </div>
       <div class="zone">
@@ -139,7 +144,7 @@ function fmt(v) {
           <a-input-number v-model:value="form.close_long" :min="0" :step="step" :precision="precision" size="small" style="width: 90px" />
           <a-button size="small" :disabled="!hasLong || !!closeLongTrigger"
             @click="place('close_long', form.close_long)">多平</a-button>
-          <a-button size="small" @click="stopCurrent">停止</a-button>
+          <a-button size="small" :disabled="stopDisabled" @click="stopCurrent">停止</a-button>
         </div>
       </div>
     </div>
