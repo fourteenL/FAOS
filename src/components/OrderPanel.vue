@@ -93,7 +93,7 @@ async function place(action, spread, lots) {
 async function stopCurrent() {
   try {
     await store.stopStrategy(s.value.id);
-    message.success("已停止（撤触发单 + 停算法），持仓保留");
+    message.success("已停止当前操作（撤触发单 + 停算法），持仓保留");
   } catch (e) {
     message.error(String(e));
   }

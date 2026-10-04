@@ -90,12 +90,13 @@ class StrategyManager:
         return self._store.list()
 
     def stop(self, strategy_id: int) -> Strategy:
+        """停止：撤触发单+停算法，策略保持在线（active）——重启式下单需可再挂单。"""
         s = self._require(strategy_id)
         for hook in self.on_stop_hooks:
             hook(s)
         s.triggers = []
         s.active_algos = []
-        s.status = StrategyStatus.stopped
+        s.status = StrategyStatus.active  # 一律保持在线（pending 期间停止同样转 active，回执由严格同步处理）
         self._store.update(s)
         self._push.strategy(s)
         return s
