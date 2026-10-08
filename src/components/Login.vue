@@ -11,9 +11,34 @@ const form = reactive({
   ctp_password: "",
   counter: "实盘",
   mqtt_host: "",
+  mqtt_port: null,
+  ctp_server: "simnow1",
+  ctp_td: "",
+  ctp_md: "",
   broker: "9999",
   remember: false,
 });
+
+// CTP 前置预设（SimNow 2025-06 起新地址）；custom = 手填交易/行情前置
+const CTP_SERVERS = [
+  { value: "simnow1", label: "SimNow 第一组（电信）", td: "tcp://182.254.243.31:30001", md: "tcp://182.254.243.31:30011" },
+  { value: "simnow2", label: "SimNow 第二组（电信）", td: "tcp://182.254.243.31:30002", md: "tcp://182.254.243.31:30012" },
+  { value: "simnow3", label: "SimNow 第三组（电信）", td: "tcp://182.254.243.31:30003", md: "tcp://182.254.243.31:30013" },
+  { value: "simnow724", label: "SimNow 7×24（收盘后/周末）", td: "tcp://182.254.243.31:40001", md: "tcp://182.254.243.31:40011" },
+  { value: "custom", label: "自定义前置地址", td: "", md: "" },
+];
+
+function matchServer(td, md) {
+  const hit = CTP_SERVERS.find((x) => x.value !== "custom" && x.td === td && x.md === md);
+  return hit ? hit.value : "custom";
+}
+
+function resolveServer() {
+  const p = CTP_SERVERS.find((x) => x.value === form.ctp_server);
+  if (!p || p.value === "custom") return { td: form.ctp_td.trim(), md: form.ctp_md.trim() };
+  return { td: p.td, md: p.md };
+}
+
 const remembered = ref(false);
 const loading = ref(false);
 
@@ -24,6 +49,10 @@ onMounted(async () => {
     form.ctp_password = st.ctp_password || "";
     form.counter = st.counter || "实盘";
     form.mqtt_host = st.mqtt_host || "";
+    form.mqtt_port = st.mqtt_port || null;
+    form.ctp_server = st.ctp_td ? matchServer(st.ctp_td, st.ctp_md) : "simnow1";
+    form.ctp_td = st.ctp_td || "";
+    form.ctp_md = st.ctp_md || "";
     form.broker = st.broker || "9999";
     form.remember = remembered.value = st.remembered;
   } catch (e) {
@@ -42,11 +71,15 @@ async function doLogin(offline) {
   }
   loading.value = true;
   try {
+    const srv = resolveServer();
     await store.login({
       ctp_account: form.ctp_account.trim(),
       ctp_password: form.ctp_password,
       counter: form.counter,
       mqtt_host: form.mqtt_host.trim(),
+      mqtt_port: form.mqtt_port ? Number(form.mqtt_port) : undefined,
+      ctp_td: srv.td,
+      ctp_md: srv.md,
       broker: form.broker.trim(),
       remember: form.remember,
       offline,
@@ -80,9 +113,25 @@ async function doLogin(offline) {
             <a-select v-model:value="form.counter" size="large" :options="[{ value: '实盘', label: '实盘（SimNow/生产证书）' }, { value: '测试', label: '测试（旧柜台，勿用）' }]" />
           </a-form-item>
         </div>
-        <a-form-item label="行情服务器">
-          <a-input v-model:value="form.mqtt_host" placeholder="MQTT 服务器地址" size="large" @pressEnter="doLogin(false)" />
+        <a-form-item label="CTP 服务器">
+          <a-select v-model:value="form.ctp_server" size="large" :options="CTP_SERVERS" />
         </a-form-item>
+        <div v-if="form.ctp_server === 'custom'" class="row2">
+          <a-form-item label="交易前置" class="half">
+            <a-input v-model:value="form.ctp_td" placeholder="tcp://host:port" size="large" @pressEnter="doLogin(false)" />
+          </a-form-item>
+          <a-form-item label="行情前置" class="half">
+            <a-input v-model:value="form.ctp_md" placeholder="tcp://host:port" size="large" @pressEnter="doLogin(false)" />
+          </a-form-item>
+        </div>
+        <div class="row2">
+          <a-form-item label="行情服务器" class="half">
+            <a-input v-model:value="form.mqtt_host" placeholder="MQTT 地址" size="large" @pressEnter="doLogin(false)" />
+          </a-form-item>
+          <a-form-item label="端口" class="half">
+            <a-input-number v-model:value="form.mqtt_port" :min="1" :max="65535" placeholder="1889" style="width: 100%" size="large" @pressEnter="doLogin(false)" />
+          </a-form-item>
+        </div>
         <a-checkbox v-model:checked="form.remember">记住我（保存账号密码到本机）</a-checkbox>
         <div class="btns">
           <a-button type="primary" size="large" class="btn" :loading="loading && !form.offline" @click="doLogin(false)">登 录</a-button>

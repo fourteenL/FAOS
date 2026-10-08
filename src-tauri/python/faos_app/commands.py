@@ -76,6 +76,9 @@ class LoginBody(BaseModel):
     ctp_password: str
     counter: str = "实盘"  # SimNow 新前置要求生产证书（实盘）；「测试」会 4097 握手失败
     mqtt_host: str = ""
+    mqtt_port: Optional[int] = None  # 空/非法不改配置
+    ctp_td: str = ""  # 交易前置（空=不改配置）
+    ctp_md: str = ""  # 行情前置（空=不改配置）
     broker: str = "9999"
     remember: bool = False
     offline: bool = False
@@ -91,6 +94,9 @@ class LoginStateResp(BaseModel):
     ctp_password: str = ""
     counter: str = "实盘"
     mqtt_host: str = ""
+    mqtt_port: Optional[int] = None
+    ctp_td: str = ""
+    ctp_md: str = ""
     broker: str = "9999"
     remembered: bool = False
 
@@ -229,7 +235,8 @@ async def get_app_status(body: Empty, state: Annotated[AppState, State()]) -> Di
 async def login(body: LoginBody, state: Annotated[AppState, State()]) -> LoginResp:
     """登录：派生 MQTT 凭据（u+CTP账号），连接 MQTT；offline=False 时同时连 CTP。"""
     apply_login(state.settings, body.ctp_account, body.ctp_password,
-                body.counter, body.mqtt_host, body.broker)
+                body.counter, body.mqtt_host, body.broker,
+                mqtt_port=body.mqtt_port, ctp_td=body.ctp_td, ctp_md=body.ctp_md)
     if body.remember:
         save_settings(state.settings, settings_path())  # 记住我：凭据落盘
     state.feed.start()  # 幂等
@@ -253,6 +260,9 @@ async def get_login_state(body: Empty, state: Annotated[AppState, State()]) -> L
         ctp_password=s.ctp.密码,
         counter=s.ctp.柜台环境,
         mqtt_host=s.mqtt.host,
+        mqtt_port=s.mqtt.port,
+        ctp_td=s.ctp.交易服务器,
+        ctp_md=s.ctp.行情服务器,
         broker=s.ctp.经纪商代码,
         remembered=remembered,
     )
