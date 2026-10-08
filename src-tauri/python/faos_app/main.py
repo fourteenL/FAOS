@@ -76,6 +76,7 @@ def _build_services(settings: Settings, portal, pusher: Pusher) -> AppState:
     try:
         ctp.start(settings.ctp, portal, connect=False)  # CTP 由用户手动连接（SimNow 仅交易时段可登录）
         spread_engine = ctp.main_engine.add_app(SpreadTradingApp)
+        spread_engine.start()  # 注册 tick/委托/成交/timer 事件路由——不调 start 算法收不到行情、撤单重报不运转
         spread_service = SpreadService(
             ctp=ctp, push=pusher, algo_settings=settings.algo,
             engine=spread_engine, event_engine=ctp.event_engine,
