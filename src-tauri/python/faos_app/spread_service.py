@@ -81,22 +81,34 @@ class SpreadService:
         spread = self._spreads.get(strategy.pair)
         if spread is not None:
             return spread
-        leg_a, leg_b = LegData(vt_symbol_of(strategy.leg_a)), LegData(vt_symbol_of(strategy.leg_b))
-        spread = SpreadData(
-            name=strategy.pair,
-            legs=[leg_a, leg_b],
-            variable_symbols={"A": leg_a.vt_symbol, "B": leg_b.vt_symbol},
-            variable_directions={"A": 1, "B": -1},
-            price_formula="A-B",
-            trading_multipliers={leg_a.vt_symbol: 1, leg_b.vt_symbol: -1},
-            active_symbol=leg_a.vt_symbol,
-            min_volume=1,
-        )
-        self._spreads[strategy.pair] = spread
+        leg_a, leg_b = vt_symbol_of(strategy.leg_a), vt_symbol_of(strategy.leg_b)
         if self._engine is not None:
+            # 真实 SpreadDataEngine.add_spread 以设置字典入参并自行构造/注册 SpreadData
+            # （save=False：策略唯一事实源是 strategies.json，不让引擎再持久化一份）
             self._install_algo_class()
-            self._engine.add_spread(spread)
-        self._ctp.subscribe_symbols([leg_a.vt_symbol, leg_b.vt_symbol])
+            self._engine.add_spread(
+                strategy.pair,
+                [
+                    {"vt_symbol": leg_a, "variable": "A", "trading_direction": 1, "trading_multiplier": 1},
+                    {"vt_symbol": leg_b, "variable": "B", "trading_direction": -1, "trading_multiplier": -1},
+                ],
+                "A-B", leg_a, 1, save=False,
+            )
+            spread = self._engine.spreads[strategy.pair]
+        else:
+            leg_a_data, leg_b_data = LegData(leg_a), LegData(leg_b)
+            spread = SpreadData(
+                name=strategy.pair,
+                legs=[leg_a_data, leg_b_data],
+                variable_symbols={"A": leg_a, "B": leg_b},
+                variable_directions={"A": 1, "B": -1},
+                price_formula="A-B",
+                trading_multipliers={leg_a: 1, leg_b: -1},
+                active_symbol=leg_a,
+                min_volume=1,
+            )
+        self._spreads[strategy.pair] = spread
+        self._ctp.subscribe_symbols([leg_a, leg_b])
         return spread
 
     # -- SpreadExecutor -------------------------------------------------------
