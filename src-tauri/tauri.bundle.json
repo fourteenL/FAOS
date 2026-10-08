@@ -35,6 +35,11 @@
     ],
     "resources": {
       "pyembed/python": "./"
+    },
+    "windows": {
+      "nsis": {
+        "installerHooks": "./nsis/hooks.nsh"
+      }
     }
   }
 }
