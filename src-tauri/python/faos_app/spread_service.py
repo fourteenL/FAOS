@@ -21,6 +21,13 @@ _ACTION_DIRECTION = {
     TriggerAction.close_long: Direction.SHORT,
 }
 
+_ACTION_DONE_NOTICE = {
+    TriggerAction.open_short: "做空成功（成交 {v:.0f} 份）",
+    TriggerAction.open_long: "做多成功（成交 {v:.0f} 份）",
+    TriggerAction.close_short: "空平成功（买回 {v:.0f} 份）",
+    TriggerAction.close_long: "多平成功（卖出 {v:.0f} 份）",
+}
+
 
 def vt_symbol_of(symbol: str) -> str:
     """裸合约号 → vnpy vt_symbol（上期所）。"""
@@ -40,6 +47,7 @@ class SpreadService:
         self._spreads: dict[str, SpreadData] = {}
         self._algo_started: dict[str, float] = {}  # I8 看门狗: algoid -> 启动时刻
         self._algo_direction: dict[str, object] = {}  # algoid -> Direction（方向停止用）
+        self._algo_action: dict[str, object] = {}  # algoid -> TriggerAction（成功通知文案用）
         self._algo_latest: dict[str, "AlgoItem"] = {}  # pair -> 最新算法快照（追价文案用）
         if event_engine is not None:
             self._install_algo_class()
@@ -94,7 +102,9 @@ class SpreadService:
                 ],
                 "A-B", leg_a, 1, save=False,
             )
-            spread = self._engine.spreads[strategy.pair]
+            # 真实 SpreadEngine 的注册表在其 data_engine 上（Fake 直挂自身）
+            data_engine = getattr(self._engine, "data_engine", self._engine)
+            spread = data_engine.spreads[strategy.pair]
         else:
             leg_a_data, leg_b_data = LegData(leg_a), LegData(leg_b)
             spread = SpreadData(
@@ -139,6 +149,7 @@ class SpreadService:
         if algoid:
             self._algo_started[algoid] = _time.monotonic()
             self._algo_direction[algoid] = _ACTION_DIRECTION[trigger.action]
+            self._algo_action[algoid] = trigger.action
         return algoid or None
 
     def stop_algos(self, strategy: Strategy) -> None:
@@ -146,6 +157,7 @@ class SpreadService:
             if self._engine is not None:
                 self._engine.stop_algo(algoid)
             self._algo_direction.pop(algoid, None)
+            self._algo_action.pop(algoid, None)
         strategy.active_algos = []
 
     def stop_algos_direction(self, strategy: Strategy, side: str) -> None:
@@ -159,6 +171,7 @@ class SpreadService:
             if self._engine is not None:
                 self._engine.stop_algo(algoid)
             self._algo_direction.pop(algoid, None)
+            self._algo_action.pop(algoid, None)
             strategy.active_algos.remove(algoid)
 
     # -- 算法事件 ---------------------------------------------------------------
@@ -216,6 +229,10 @@ class SpreadService:
             return
         self._algo_started.pop(item.algoid, None)
         self._algo_direction.pop(item.algoid, None)
+        action = self._algo_action.pop(item.algoid, None)
+        if item.traded_volume > 0:
+            tpl = _ACTION_DONE_NOTICE.get(action, "价差算法完成（成交 {v:.0f} 份）")
+            self._push.notice("success", tpl.format(v=item.traded_volume))
         signed = item.traded_volume if item.direction == Direction.LONG else -item.traded_volume
         s.held_units = round(s.held_units + signed, 6)
         self._store.update(s)

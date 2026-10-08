@@ -5,16 +5,7 @@ import { useAppStore } from "../stores/app.js";
 const emit = defineEmits(["select"]);
 const store = useAppStore();
 
-const STATUS_ZH = {
-  unsubscribed: "未订阅",
-  pending: "等待行情",
-  active: "空闲",
-  armed: "监控中",
-  executing: "执行中",
-  stopped: "已停止",
-};
-
-// 方向持仓标签：由两腿实际持仓推导（CTP 持仓事件驱动）
+// 方向持仓标签：由两腿实际持仓推导（CTP 持仓事件驱动）——状态列唯一显示
 function directionOf(row) {
   const aL = posNum(row, row.leg_a, "long");
   const aS = posNum(row, row.leg_a, "short");
@@ -34,10 +25,10 @@ function posNum(row, leg, dir) {
   return p ? p[dir] || 0 : 0;
 }
 
-function statusText(row) {
-  const base = STATUS_ZH[row.status] || row.status;
-  const held = Math.abs(row.held_units || 0);
-  return held > 0 ? `${base}·持仓${held}份` : base;
+// 仓位单元格：有持仓标红加粗，无数据显示 --
+function posCell(row, leg, dir) {
+  const v = posOf(row, leg, dir);
+  return { text: v == null ? "--" : v, hold: (v || 0) > 0 };
 }
 
 function quoteOf(row, key) {
@@ -148,13 +139,20 @@ const ACTION_BY_KEY = {
       <template v-else-if="column.key === 'long_cover'">
         <span :class="colorOf(record, 'long_cover')">{{ fmt(quoteOf(record, "long_cover")) }}</span>
       </template>
-      <template v-else-if="column.key === 'a_short'">{{ posOf(record, record.leg_a, "short") ?? "--" }}</template>
-      <template v-else-if="column.key === 'b_short'">{{ posOf(record, record.leg_b, "short") ?? "--" }}</template>
-      <template v-else-if="column.key === 'a_long'">{{ posOf(record, record.leg_a, "long") ?? "--" }}</template>
-      <template v-else-if="column.key === 'b_long'">{{ posOf(record, record.leg_b, "long") ?? "--" }}</template>
+      <template v-else-if="column.key === 'a_short'">
+        <span :class="{ 'pos-hold': posCell(record, record.leg_a, 'short').hold }">{{ posCell(record, record.leg_a, 'short').text }}</span>
+      </template>
+      <template v-else-if="column.key === 'b_short'">
+        <span :class="{ 'pos-hold': posCell(record, record.leg_b, 'short').hold }">{{ posCell(record, record.leg_b, 'short').text }}</span>
+      </template>
+      <template v-else-if="column.key === 'a_long'">
+        <span :class="{ 'pos-hold': posCell(record, record.leg_a, 'long').hold }">{{ posCell(record, record.leg_a, 'long').text }}</span>
+      </template>
+      <template v-else-if="column.key === 'b_long'">
+        <span :class="{ 'pos-hold': posCell(record, record.leg_b, 'long').hold }">{{ posCell(record, record.leg_b, 'long').text }}</span>
+      </template>
       <template v-else-if="column.key === 'status'">
         <span :class="directionOf(record).cls">{{ directionOf(record).label }}</span>
-        <div class="run-status">{{ statusText(record) }}</div>
       </template>
     </template>
   </a-table>
@@ -165,6 +163,6 @@ const ACTION_BY_KEY = {
 .down { color: #389e0d; font-weight: 600; }
 .dir-free { color: #389e0d; font-weight: 600; }
 .dir-active { color: #cf1322; font-weight: 600; }
-.run-status { font-size: 11px; color: #999; font-weight: 400; }
+.pos-hold { color: #cf1322; font-weight: 600; }  /* 仓位非零标红 */
 :deep(td) { font-variant-numeric: tabular-nums; }  /* 等宽数字：位数变化不改变单元格宽度 */
 </style>
