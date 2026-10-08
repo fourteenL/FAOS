@@ -181,12 +181,13 @@ class SpreadService:
         portal.start_task_soon(loop)
 
     def chasing_texts(self) -> dict:
-        """每策略的追价文案（腿部卡片显示）。"""
+        """每策略的追价文案（腿部卡片显示）：逐跳 = 各腿委托已发出次数。"""
         out = {}
         for pair, it in self._algo_latest.items():
-            out[pair] = (
-                f"追价中：第 {it.count} 轮（成交 {it.traded_volume:.0f}/{it.volume:.0f}）"
-            )
+            hops = ""
+            if hasattr(it, "chase_a"):
+                hops = f"A 已报 {it.chase_a} 跳、B 已报 {it.chase_b} 跳，"
+            out[pair] = f"追价中：{hops}成交 {it.traded_volume:.0f}/{it.volume:.0f}"
         return out
 
     def _process_algo_event(self, item: AlgoItem) -> None:
