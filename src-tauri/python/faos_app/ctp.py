@@ -225,7 +225,7 @@ class CtpService:
 
     def _set_state(self, state: str, msg: Optional[str] = None) -> None:
         self.state = state
-        self._push.ctp_state(state, msg)
+        self._push.conn_state("ctp", state, msg)  # 前端监听 py://conn-state（kind=ctp）
 
     # -- 测试/驱动 ------------------------------------------------------------
 

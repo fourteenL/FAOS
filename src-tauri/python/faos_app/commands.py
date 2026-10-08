@@ -74,7 +74,7 @@ class LegBody(IdBody):
 class LoginBody(BaseModel):
     ctp_account: str
     ctp_password: str
-    counter: str = "测试"
+    counter: str = "实盘"  # SimNow 新前置要求生产证书（实盘）；「测试」会 4097 握手失败
     mqtt_host: str = ""
     broker: str = "9999"
     remember: bool = False
@@ -89,7 +89,7 @@ class LoginResp(BaseModel):
 class LoginStateResp(BaseModel):
     ctp_account: str = ""
     ctp_password: str = ""
-    counter: str = "测试"
+    counter: str = "实盘"
     mqtt_host: str = ""
     broker: str = "9999"
     remembered: bool = False

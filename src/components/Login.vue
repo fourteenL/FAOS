@@ -9,7 +9,7 @@ const store = useAppStore();
 const form = reactive({
   ctp_account: "",
   ctp_password: "",
-  counter: "测试",
+  counter: "实盘",
   mqtt_host: "",
   broker: "9999",
   remember: false,
@@ -22,7 +22,7 @@ onMounted(async () => {
     const st = await store.getLoginState();
     form.ctp_account = st.ctp_account || "";
     form.ctp_password = st.ctp_password || "";
-    form.counter = st.counter || "测试";
+    form.counter = st.counter || "实盘";
     form.mqtt_host = st.mqtt_host || "";
     form.broker = st.broker || "9999";
     form.remember = remembered.value = st.remembered;
@@ -77,7 +77,7 @@ async function doLogin(offline) {
             <a-input v-model:value="form.broker" placeholder="如 9999" size="large" @pressEnter="doLogin(false)" />
           </a-form-item>
           <a-form-item label="柜台环境" class="half">
-            <a-select v-model:value="form.counter" size="large" :options="[{ value: '测试', label: '测试（SimNow）' }, { value: '实盘', label: '实盘' }]" />
+            <a-select v-model:value="form.counter" size="large" :options="[{ value: '实盘', label: '实盘（SimNow/生产证书）' }, { value: '测试', label: '测试（旧柜台，勿用）' }]" />
           </a-form-item>
         </div>
         <a-form-item label="行情服务器">
