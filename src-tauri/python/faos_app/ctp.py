@@ -213,6 +213,7 @@ class CtpService:
             self._set_state("ready")
             if not self._ready_fired:
                 self._ready_fired = True
+                self._push.notice("success", "CTP 登录成功，交易已就绪")
                 if self.on_ready is not None:
                     self.on_ready()
         elif "连接断开" in msg:

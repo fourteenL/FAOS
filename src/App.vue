@@ -37,11 +37,18 @@ onMounted(async () => {
 
 function watchNotices() {
   let seen = 0;
+  const NOTIFY = {
+    error: notification.error,
+    warn: notification.warning,
+    success: notification.success,
+    info: notification.info,
+  };
+  const TITLE = { error: "错误", warn: "提示", success: "成功", info: "提示" };
   store.$subscribe(() => {
     if (store.notices.length > seen) {
       for (const n of store.notices.slice(seen)) {
-        (n.level === "error" ? notification.error : notification.warning)({
-          message: n.level === "error" ? "错误" : "提示",
+        (NOTIFY[n.level] || notification.info)({
+          message: TITLE[n.level] || "提示",
           description: n.msg,
         });
       }

@@ -60,19 +60,20 @@ function colorOf(row, key) {
   return now > old ? "up" : "down";
 }
 
+// 全列定宽 + tableLayout=fixed：差价/仓位内容变化（单帧尖刺、涨跌加粗）不再引起整表重排
 const columns = computed(() => [
   { title: "编号", dataIndex: "id", key: "id", width: 60, align: "center" },
-  { title: "A合约", dataIndex: "leg_a", key: "leg_a", align: "center" },
-  { title: "B合约", dataIndex: "leg_b", key: "leg_b", align: "center" },
+  { title: "A合约", dataIndex: "leg_a", key: "leg_a", width: 78, align: "center" },
+  { title: "B合约", dataIndex: "leg_b", key: "leg_b", width: 78, align: "center" },
   { title: "A撤单", key: "cancel_a", width: 80, align: "center" },
-  { title: "空开", key: "short_open", align: "center" },
-  { title: "空平", key: "short_cover", align: "center" },
-  { title: "A空仓", key: "a_short", align: "center" },
-  { title: "B空仓", key: "b_short", align: "center" },
-  { title: "多开", key: "long_open", align: "center" },
-  { title: "多平", key: "long_cover", align: "center" },
-  { title: "A多仓", key: "a_long", align: "center" },
-  { title: "B多仓", key: "b_long", align: "center" },
+  { title: "空开", key: "short_open", width: 76, align: "center" },
+  { title: "空平", key: "short_cover", width: 76, align: "center" },
+  { title: "A空仓", key: "a_short", width: 64, align: "center" },
+  { title: "B空仓", key: "b_short", width: 64, align: "center" },
+  { title: "多开", key: "long_open", width: 76, align: "center" },
+  { title: "多平", key: "long_cover", width: 76, align: "center" },
+  { title: "A多仓", key: "a_long", width: 64, align: "center" },
+  { title: "B多仓", key: "b_long", width: 64, align: "center" },
   { title: "状态", key: "status", width: 130, align: "center" },
   { title: "单份", dataIndex: "single_lots", key: "single_lots", align: "center", width: 70 },
   { title: "总份", dataIndex: "total_lots", key: "total_lots", align: "center", width: 70 },
@@ -127,6 +128,7 @@ const ACTION_BY_KEY = {
     :pagination="false"
     size="small"
     row-key="id"
+    table-layout="fixed"
     :custom-row="onRow"
   >
     <template #headerCell="{ column }">
@@ -160,8 +162,9 @@ const ACTION_BY_KEY = {
 
 <style scoped>
 .up { color: #cf1322; font-weight: 600; }
+.down { color: #389e0d; font-weight: 600; }
 .dir-free { color: #389e0d; font-weight: 600; }
 .dir-active { color: #cf1322; font-weight: 600; }
 .run-status { font-size: 11px; color: #999; font-weight: 400; }
-.down { color: #389e0d; font-weight: 600; }
+:deep(td) { font-variant-numeric: tabular-nums; }  /* 等宽数字：位数变化不改变单元格宽度 */
 </style>
