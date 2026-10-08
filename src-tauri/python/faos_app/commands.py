@@ -14,9 +14,9 @@ from faos_app.config import (
     Settings,
     masked_settings,
     merge_masked_settings,
-    save_settings,
-    settings_path,
 )
+from faos_app.config import save_settings as persist_settings
+from faos_app.config import settings_path
 from faos_app.models import Strategy, TriggerAction
 from faos_app.state import AppState
 
@@ -138,7 +138,7 @@ async def get_settings(body: Empty, state: Annotated[AppState, State()]) -> Sett
 @commands.command()
 async def save_settings(body: Settings, state: Annotated[AppState, State()]) -> Ok:
     merged = merge_masked_settings(body, state.settings)  # 掩码保持原密码
-    save_settings(merged, settings_path())
+    persist_settings(merged, settings_path())
     state.settings = merged
     state.pusher.notice(
         "info", "设置已保存。MQTT/CTP 连接参数将在重启应用后生效"
@@ -238,7 +238,7 @@ async def login(body: LoginBody, state: Annotated[AppState, State()]) -> LoginRe
                 body.counter, body.mqtt_host, body.broker,
                 mqtt_port=body.mqtt_port, ctp_td=body.ctp_td, ctp_md=body.ctp_md)
     if body.remember:
-        save_settings(state.settings, settings_path())  # 记住我：凭据落盘
+        persist_settings(state.settings, settings_path())  # 记住我：凭据落盘
     state.feed.start()  # 幂等
     if not body.offline:
         if state.ctp is None:

@@ -34,7 +34,8 @@
       "icons/icon.ico"
     ],
     "resources": {
-      "pyembed/python": "./"
+      "pyembed/python": "./",
+      "../config": "config"
     },
     "windows": {
       "nsis": {

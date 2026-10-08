@@ -22,7 +22,7 @@ from pydantic import BaseModel
 
 class MqttSettings(BaseModel):
     host: str = ""
-    port: int = 1899
+    port: int = 1889  # broker 实际端口（曾误置 1899）
     user: str = ""
     password: str = ""
 
@@ -36,7 +36,7 @@ class CtpSettings(BaseModel):
     行情服务器: str = ""
     产品名称: str = ""
     授权编码: str = ""
-    柜台环境: str = "测试"  # "实盘" | "测试"
+    柜台环境: str = "实盘"  # SimNow 新前置要求生产证书；「测试」会 4097 握手失败
 
 
 class AlgoSettings(BaseModel):

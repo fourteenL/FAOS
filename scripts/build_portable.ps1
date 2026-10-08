@@ -24,6 +24,8 @@ if (-not $SkipBuild) {
 if (-not (Test-Path "$pyembed\python.exe")) { throw "嵌入式 Python 不存在，先跑 build_release.ps1" }
 New-Item -ItemType Directory -Force -Path $out | Out-Null
 Copy-Item (Join-Path $repo "src-tauri\target\bundle-release\faos.exe") $out -Force
-Copy-Item (Join-Path $repo "config\settings.local.json") $out -Force
+# 配置须放 exe 同目录 config\ 下（find_repo_config 按此查找；放根目录不生效）
+New-Item -ItemType Directory -Force -Path (Join-Path $out "config") | Out-Null
+Copy-Item (Join-Path $repo "config\settings.local.json") (Join-Path $out "config\settings.local.json") -Force
 robocopy $pyembed $out /E /NFL /NDL /NJH /NJS /NP
-Write-Host "`n完成：$out（faos.exe + python + settings.local.json）"
+Write-Host "`n完成：$out（faos.exe + python + config\settings.local.json）"
