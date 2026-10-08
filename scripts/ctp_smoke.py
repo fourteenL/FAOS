@@ -24,8 +24,7 @@ def main() -> int:
 
     settings = load_effective_settings(settings_path())
     ee = EventEngine()
-    me = MainEngine(ee)
-    ee.start()
+    me = MainEngine(ee)  # MainEngine.__init__ 已 start EventEngine，勿重复 start
 
     ee.register(EVENT_LOG, lambda e: print("[LOG]", e.data.msg))
     ee.register(EVENT_TICK, lambda e: print(
@@ -35,8 +34,10 @@ def main() -> int:
     me.connect(build_ctp_setting(settings.ctp), "CTP")
 
     time.sleep(8)
-    req = SubscribeRequest(symbol="ag2606", exchange=__import__("vnpy.trader.constant", fromlist=["Exchange"]).Exchange.SHFE)
-    me.subscribe(req, "CTP")
+    from vnpy.trader.constant import Exchange
+
+    for sym in ("ag2612", "ag2702"):  # 当前挂牌活跃合约
+        me.subscribe(SubscribeRequest(symbol=sym, exchange=Exchange.SHFE), "CTP")
 
     print("运行 30 秒，观察持仓/行情……")
     time.sleep(30)
