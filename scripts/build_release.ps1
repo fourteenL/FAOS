@@ -24,6 +24,12 @@ Write-Host "[2/4] 安装 Python 依赖 ..."
 & $pyembed\python.exe -m pip install ./src-tauri "paho-mqtt==2.*" vnpy vnpy_ctp vnpy_spreadtrading
 if ($LASTEXITCODE -ne 0) { throw "pip install 失败" }
 
+# 2.5 生成发行配置（剥离账号/密码，只保留服务器地址等非账号信息）
+Write-Host "[2.5/4] 生成 settings.dist.json（无凭据）..."
+$distCfg = Join-Path $repo "config\settings.dist.json"
+& $pyembed\python.exe -c "import json,pathlib; s=json.loads(pathlib.Path(r'$(Join-Path $repo 'config\settings.local.json')').read_text(encoding='utf-8')); s.setdefault('mqtt',{}).update(user='',password=''); s.setdefault('ctp',{}).update({'用户名':'','密码':''}); pathlib.Path(r'$distCfg').write_text(json.dumps(s,ensure_ascii=False,indent=2),encoding='utf-8')"
+if ($LASTEXITCODE -ne 0) { throw "生成发行配置失败" }
+
 # 3. 前端依赖
 Write-Host "[3/4] npm install ..."
 Push-Location $repo
