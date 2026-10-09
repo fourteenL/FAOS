@@ -37,13 +37,32 @@ def _build_services(settings: Settings, portal, pusher: Pusher) -> AppState:
     store = StrategyStore(default_data_dir() / "strategies.json")
     state_ref: dict = {}
 
+    # 行情合并批量推送：66 组合 ~170 帧/秒逐帧推事件会打满事件循环/WebView
+    # （下单/停止命令排队分钟级），200ms 窗口合并后事件量降至 ~5/秒；
+    # 触发判断（manager/monitor）仍走逐帧原始行情，不受影响
+    from faos_app.quote_batch import SpreadBatcher
+
+    spread_batcher = SpreadBatcher(pusher.spread_batch)
+
+    async def flush_spread_loop():
+        import anyio
+
+        while True:
+            await anyio.sleep(0.2)
+            spread_batcher.flush()
+
+    portal.start_task_soon(flush_spread_loop)
+
+    trace_spread = bool(os.environ.get("FAOS_TRACE_SPREAD"))  # 逐帧行情日志默认关（170 行/秒 I/O）
+
     def on_spread(pair: str, q: SpreadQuote) -> None:
-        log(f"FAOS_SPREAD {pair} {q.model_dump_json()}")
+        if trace_spread:
+            log(f"FAOS_SPREAD {pair} {q.model_dump_json()}")
         mgr = state_ref.get("manager")
         if mgr:
             mgr.on_spread(pair, q)
             state_ref["monitor"].on_spread(pair, q)
-        pusher.spread(pair, q)
+        spread_batcher.push(pair, q)
 
     def on_status(status: MqStatus) -> None:
         log(f"FAOS_MQ_STATUS {status.model_dump_json()}")

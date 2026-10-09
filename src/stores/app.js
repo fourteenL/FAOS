@@ -83,9 +83,12 @@ export const useAppStore = defineStore("app", {
         this.strategies = this.strategies.filter((x) => x.id !== p.id);
         if (this.selectedId === p.id) this.selectedId = null;
       });
-      listenPy("spread", (p) => {
-        this.prevQuotes[p.pair] = this.quotes[p.pair] || null;
-        this.quotes[p.pair] = p.quote;
+      listenPy("spread-batch", (p) => {
+        // 合并行情批量事件（200ms 一批）：一次合并全部最新帧，渲染频率与行情帧率解耦
+        for (const [pair, q] of Object.entries(p.quotes || {})) {
+          this.prevQuotes[pair] = this.quotes[pair] || null;
+          this.quotes[pair] = q;
+        }
       });
       listenPy("mq-status", (p) => {
         this.mqStatus = p;

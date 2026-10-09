@@ -34,6 +34,13 @@ class Pusher:
     def spread(self, pair: str, q: SpreadQuote) -> None:
         self._emit("spread", {"pair": pair, "quote": q.model_dump()})
 
+    def spread_batch(self, quotes: dict) -> None:
+        """合并行情批量推送（200ms 窗口最新帧，降低 IPC 事件量 ~97%）。"""
+        self._emit("spread-batch", {
+            "quotes": {pair: (q.model_dump() if hasattr(q, "model_dump") else q)
+                       for pair, q in quotes.items()}
+        })
+
     def mq_status(self, s: MqStatus) -> None:
         self._emit("mq-status", s.model_dump(mode="json"))
 
