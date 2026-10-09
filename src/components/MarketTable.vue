@@ -5,16 +5,20 @@ import { useAppStore } from "../stores/app.js";
 const emit = defineEmits(["select"]);
 const store = useAppStore();
 
-// 方向持仓标签：由策略自身 held_units 推导（不用全局合约持仓——共享腿会串显到别的行）
+// 方向标签：只由持仓驱动（挂单/执行中不显示方向，成交 held_units≠0 才显示——用户定稿语义）
 function directionOf(row) {
   const held = row.held_units || 0;
-  const armed = (action) => (row.triggers || []).some((t) => t.action === action);
-  const hasLong = held > 0 || armed("open_long");   // 多头价差或已挂做多触发单
-  const hasShort = held < 0 || armed("open_short"); // 空头价差或已挂做空触发单
-  if (hasLong && hasShort) return { label: "空多", cls: "dir-active" };
-  if (hasShort) return { label: "做空", cls: "dir-active" };
-  if (hasLong) return { label: "做多", cls: "dir-active" };
+  if (held < 0) return { label: "做空", cls: "dir-active" };
+  if (held > 0) return { label: "做多", cls: "dir-active" };
   return { label: "空闲", cls: "dir-free" };
+}
+
+// 行高亮：执行中（浅红）> 挂单中（浅金）> 选中（浅蓝）
+function rowBg(row) {
+  if ((row.active_algos || []).length || row.status === "executing") return "#fff1f0";
+  if ((row.triggers || []).length) return "#fffbe6";
+  if (store.selectedId === row.id) return "#e6f4ff";
+  return "";
 }
 
 // 策略归属的腿仓位：held_units × 单份数 推导两腿持仓（仅本行下单产生的仓位在此行显示）
@@ -82,7 +86,7 @@ function onRow(row) {
       emit("select", row.id);
       fillAll(row);
     },
-    style: { cursor: "pointer", background: store.selectedId === row.id ? "#e6f4ff" : "" },
+    style: { cursor: "pointer", background: rowBg(row) },
   };
 }
 
