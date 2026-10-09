@@ -30,6 +30,11 @@ $distCfg = Join-Path $repo "config\settings.dist.json"
 & $pyembed\python.exe -c "import json,pathlib; s=json.loads(pathlib.Path(r'$(Join-Path $repo 'config\settings.local.json')').read_text(encoding='utf-8')); s.setdefault('mqtt',{}).update(user='',password=''); s.setdefault('ctp',{}).update({'用户名':'','密码':''}); pathlib.Path(r'$distCfg').write_text(json.dumps(s,ensure_ascii=False,indent=2),encoding='utf-8')"
 if ($LASTEXITCODE -ne 0) { throw "生成发行配置失败" }
 
+# 2.6 清理 .pyc/__pycache__：NSIS 单线程逐文件解包，~5600 个缓存文件占 29% 文件数，
+#     删除后安装 47s→40s、包体 193MB→177MB；首次启动自动重建缓存（实测启动正常）
+Get-ChildItem $pyembed -Recurse -Directory -Filter "__pycache__" -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force
+Get-ChildItem $pyembed -Recurse -Include "*.pyc", "*.pyo" -File -ErrorAction SilentlyContinue | Remove-Item -Force
+
 # 3. 前端依赖
 Write-Host "[3/4] npm install ..."
 Push-Location $repo
