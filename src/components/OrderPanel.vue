@@ -84,12 +84,20 @@ async function place(action, spread, lots) {
     message.warning("请填写触发差价");
     return;
   }
-  // 做空侧开/平价格倒挂拦截：开仓价必须大于平仓价（卖高买低才有价差收益）
+  // 开/平价格倒挂拦截：做空开仓价必须大于平仓价、做多开仓价必须小于平仓价（方向对才有价差收益）
   if (action === "open_short" || action === "close_short") {
     const open = action === "open_short" ? spread : form.open_short;
     const close = action === "close_short" ? spread : form.close_short;
     if (open != null && close != null && open <= close) {
       message.warning(`做空开仓差价必须大于平仓差价（当前 开 ${open} ≤ 平 ${close}，倒挂不执行）`);
+      return;
+    }
+  }
+  if (action === "open_long" || action === "close_long") {
+    const open = action === "open_long" ? spread : form.open_long;
+    const close = action === "close_long" ? spread : form.close_long;
+    if (open != null && close != null && open >= close) {
+      message.warning(`做多开仓差价必须小于平仓差价（当前 开 ${open} ≥ 平 ${close}，倒挂不执行）`);
       return;
     }
   }
