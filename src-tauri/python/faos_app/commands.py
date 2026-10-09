@@ -183,6 +183,17 @@ async def delete_strategy(body: IdBody, state: Annotated[AppState, State()]) -> 
         [s.model_dump(mode="json") for s in state.manager.delete(body.strategy_id)]))
 
 
+class ProductBody(BaseModel):
+    product: str
+
+
+@commands.command()
+async def delete_product(body: ProductBody, state: Annotated[AppState, State()]) -> StrategyListResp:
+    """品种退订：删除该品种全部策略并批量退订行情。"""
+    return _guard(state, lambda: StrategyListResp(
+        [s.model_dump(mode="json") for s in state.manager.delete_product(body.product)]))
+
+
 @commands.command()
 async def stop_strategy(body: IdBody, state: Annotated[AppState, State()]) -> Strategy:
     return _guard(state, lambda: state.manager.stop(body.strategy_id))

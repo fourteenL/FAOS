@@ -172,6 +172,9 @@ export const useAppStore = defineStore("app", {
     async removeStrategy(id) {
       this.strategies = await call("delete_strategy", { strategy_id: id });
     },
+    async removeProduct(product) {
+      this.strategies = await call("delete_product", { product });
+    },
     async stopStrategy(id) {
       const s = await call("stop_strategy", { strategy_id: id });
       this.upsertStrategy(s);

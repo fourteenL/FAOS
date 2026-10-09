@@ -89,6 +89,22 @@ class StrategyManager:
         self._store.remove(strategy_id)
         return self._store.list()
 
+    def delete_product(self, product: str) -> list[Strategy]:
+        """品种退订：删除该品种全部策略并一次批量退订行情。"""
+        product = product.strip().lower()
+        if not product.isalpha():
+            raise ValueError("品种代码应为纯字母，如 ag")
+        matched = [s for s in self._store.list()
+                   if self._product_of(s.pair).lower() == product]
+        for s in matched:
+            for hook in self.on_stop_hooks:
+                hook(s)
+            self._store.remove(s.id)
+            self._push.strategy_deleted(s.id)
+        if matched:
+            self._feed.unsubscribe_pairs([s.pair for s in matched])
+        return self._store.list()
+
     def stop(self, strategy_id: int) -> Strategy:
         """停止：撤触发单+停算法，策略保持在线（active）——重启式下单需可再挂单。"""
         s = self._require(strategy_id)

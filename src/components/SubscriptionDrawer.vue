@@ -6,7 +6,7 @@ import { useAppStore, STATUS_ZH, productOf } from "../stores/app.js";
 const store = useAppStore();
 const visible = ref(false);
 const activeTab = ref("pair");
-const form = reactive({ leg_a: "", leg_b: "", product: "", single_lots: 1, total_lots: 10 });
+const form = reactive({ leg_a: "", leg_b: "", product: "", single_lots: 1, total_lots: 1 });
 const submitting = ref(false);
 
 async function open() {
@@ -66,6 +66,21 @@ async function remove(id) {
   }
 }
 
+async function removeProduct() {
+  const p = form.product.trim();
+  if (!p) {
+    message.warning("请先输入要退订的品种，如 ag");
+    return;
+  }
+  const before = store.strategies.filter((s) => productOf(s) === p.toLowerCase()).length;
+  try {
+    await store.removeProduct(p);
+    message.success(`已退订品种 ${p.toUpperCase()}（${before} 对已删除）`);
+  } catch (e) {
+    message.error(String(e));
+  }
+}
+
 function canSubscribe(row) {
   return row.status === "unsubscribed" || row.status === "stopped";
 }
@@ -96,6 +111,14 @@ function canSubscribe(row) {
             <a-form-item>
               <span class="hint">展开该品种全部在市合约组合</span>
               <a-button type="primary" :loading="submitting" @click="submit" style="margin-left: 8px">订阅</a-button>
+            </a-form-item>
+          </a-form>
+          <a-form layout="inline" style="margin-top: 6px">
+            <a-form-item>
+              <span class="hint">退订将删除该品种全部组合</span>
+              <a-popconfirm :title="`退订品种 ${form.product.trim().toUpperCase() || '(未输入)'} 的全部合约？`" @confirm="removeProduct">
+                <a-button danger size="small">退订该品种</a-button>
+              </a-popconfirm>
             </a-form-item>
           </a-form>
         </a-tab-pane>
