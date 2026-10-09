@@ -10,11 +10,6 @@ const legs = ref({ leg_a: null, leg_b: null });
 
 const s = computed(() => store.selected);
 
-// 差价输入自动跟随实时行情：未手动编辑的字段持续填入最新价；
-// 手动编辑标记 dirty 不再覆盖；点行刷新 / 下单成功 / 切换策略后恢复跟随
-const dirty = new Set();
-const QUOTE_KEY = { open_short: "short_open", close_short: "short_cover", open_long: "long_open", close_long: "long_cover" };
-
 // py://algo 事件后刷新腿部快照（委托/成交变化）
 function bindAlgoRefresh() {
   // store.algos 由全局事件更新；监听其变化刷新腿部
@@ -42,16 +37,21 @@ const tick = computed(() => (s.value ? store.tickOf(s.value) : 1));
 const step = computed(() => tick.value);
 const precision = computed(() => tickPrecision(tick.value));
 
-// 点击行情单元格 → 填入对应输入框（immediate：面板可能晚于点击挂载）；点行=显式刷新，恢复跟随
+// 当前策略存活触发单的动作集合（有挂单的字段保持下单价格，直到该单停止/触发）
+const liveActions = computed(() => new Set((s.value?.triggers || []).map((t) => t.action)));
+
+// 点击行情行 → 填入点击那一刻的价格（一次性快照，不持续跟随）；
+// 已有挂单的字段不被覆盖（保持用户下单价格，直到该单停止）
 watch(
   () => store.fillRequest,
   (req) => {
     if (!req) return;
     if (req.action === "all") {
-      dirty.clear();
       const vs = req.values || {};
       for (const k of ["open_short", "close_short", "open_long", "close_long"]) {
-        if (vs[k] != null) form[k] = Number(Number(vs[k]).toFixed(precision.value));
+        if (vs[k] != null && !liveActions.value.has(k)) {
+          form[k] = Number(Number(vs[k]).toFixed(precision.value));
+        }
       }
       return;
     }
@@ -59,29 +59,13 @@ watch(
   { immediate: true }
 );
 
-function applyQuote(q) {
-  for (const [fk, qk] of Object.entries(QUOTE_KEY)) {
-    if (q[qk] != null && !dirty.has(fk)) form[fk] = Number(Number(q[qk]).toFixed(precision.value));
-  }
-}
-
 watch(
   () => s.value?.id,
   () => {
     if (!s.value) return;
-    dirty.clear(); // 切换策略恢复跟随
-    applyQuote(store.quotes[s.value.pair] || {});
     refreshLegs();
   },
   { immediate: true }
-);
-
-// 实时行情 → 自动填价（无需点行；未手动编辑的字段持续跟随）
-watch(
-  () => (s.value ? store.quotes[s.value.pair] : null),
-  (q) => {
-    if (q) applyQuote(q);
-  }
 );
 
 // 无触发单且无运行算法 → 无可停止的活动，停止按钮置灰
@@ -115,7 +99,6 @@ async function place(action, spread, lots) {
       await store.stopStrategy(s.value.id);
     }
     await store.placeTrigger(s.value.id, { action, spread, lots: lots ?? s.value.single_lots });
-    dirty.delete(action); // 下单后恢复该字段自动跟随（价格刷新为最新行情）
     message.success("触发单已挂出，等待行情触发");
   } catch (e) {
     message.error(String(e));
@@ -151,13 +134,13 @@ function fmt(v) {
         <div class="zone-title short">做空（卖A买B）</div>
         <div class="line">
           <label>空开差价</label>
-          <a-input-number v-model:value="form.open_short" :step="step" :precision="precision" size="small" style="width: 90px" @change="dirty.add('open_short')" />
+          <a-input-number v-model:value="form.open_short" :step="step" :precision="precision" size="small" style="width: 90px" />
           <a-button size="small" type="primary" danger
             @click="place('open_short', form.open_short)">做空</a-button>
         </div>
         <div class="line">
           <label>空平差价</label>
-          <a-input-number v-model:value="form.close_short" :step="step" :precision="precision" size="small" style="width: 90px" @change="dirty.add('close_short')" />
+          <a-input-number v-model:value="form.close_short" :step="step" :precision="precision" size="small" style="width: 90px" />
           <a-button size="small" :disabled="!hasShort || !!closeShortTrigger"
             @click="place('close_short', form.close_short)">空平</a-button>
           <a-button size="small" :disabled="stopDisabled" @click="stopCurrent">停止</a-button>
@@ -167,13 +150,13 @@ function fmt(v) {
         <div class="zone-title long">做多（买A卖B）</div>
         <div class="line">
           <label>多开差价</label>
-          <a-input-number v-model:value="form.open_long" :step="step" :precision="precision" size="small" style="width: 90px" @change="dirty.add('open_long')" />
+          <a-input-number v-model:value="form.open_long" :step="step" :precision="precision" size="small" style="width: 90px" />
           <a-button size="small" type="primary"
             @click="place('open_long', form.open_long)">做多</a-button>
         </div>
         <div class="line">
           <label>多平差价</label>
-          <a-input-number v-model:value="form.close_long" :step="step" :precision="precision" size="small" style="width: 90px" @change="dirty.add('close_long')" />
+          <a-input-number v-model:value="form.close_long" :step="step" :precision="precision" size="small" style="width: 90px" />
           <a-button size="small" :disabled="!hasLong || !!closeLongTrigger"
             @click="place('close_long', form.close_long)">多平</a-button>
           <a-button size="small" :disabled="stopDisabled" @click="stopCurrent">停止</a-button>
