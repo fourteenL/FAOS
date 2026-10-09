@@ -5,11 +5,16 @@ import { useAppStore } from "../stores/app.js";
 const emit = defineEmits(["select"]);
 const store = useAppStore();
 
-// 方向标签：只由持仓驱动（挂单/执行中不显示方向，成交 held_units≠0 才显示——用户定稿语义）
+// 方向标签：持仓 ∨ 已挂开仓单 ∨ 执行中（挂单→执行→成交全程方向可见——用户定稿）
 function directionOf(row) {
   const held = row.held_units || 0;
-  if (held < 0) return { label: "做空", cls: "dir-active" };
-  if (held > 0) return { label: "做多", cls: "dir-active" };
+  const armed = (action) => (row.triggers || []).some((t) => t.action === action);
+  const exec = row.executing_action;
+  const hasLong = held > 0 || armed("open_long") || exec === "open_long";
+  const hasShort = held < 0 || armed("open_short") || exec === "open_short";
+  if (hasLong && hasShort) return { label: "空多", cls: "dir-active" };
+  if (hasShort) return { label: "做空", cls: "dir-active" };
+  if (hasLong) return { label: "做多", cls: "dir-active" };
   return { label: "空闲", cls: "dir-free" };
 }
 

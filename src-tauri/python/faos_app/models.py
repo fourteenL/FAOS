@@ -42,6 +42,7 @@ class Strategy(BaseModel):
     triggers: list[Trigger] = []
     held_units: float = 0  # 已开价差份数（净）
     active_algos: list[str] = []
+    executing_action: Optional[str] = None  # 执行中的动作（挂单→执行→成交全程方向可见；算法结束清除）
     slip_a: int = 0  # A 腿（主动）滑点，跳（挂价排队默认不加滑点）
     slip_b: int = 100  # B 腿（被动）滑点，跳（对冲快速成交）
     order_type_a: str = "挂价"  # A 腿报单类型：挂价(排队)/对手价/最新价/市价

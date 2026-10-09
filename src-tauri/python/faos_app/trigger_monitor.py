@@ -58,6 +58,7 @@ class TriggerMonitor:
                     continue  # CTP 未就绪：触发单保留，状态不变
                 s.triggers.remove(t)
                 s.active_algos.append(algoid)
+                s.executing_action = t.action.value  # 执行中方向可见（触发单已消费、held 未更新）
                 s.status = StrategyStatus.executing
                 self._manager.store.update(s)
                 self._manager.push.strategy(s)
@@ -69,6 +70,7 @@ class TriggerMonitor:
         if algoid in s.active_algos:
             s.active_algos.remove(algoid)
         if not s.active_algos:
+            s.executing_action = None  # 方向交还 held_units 驱动
             s.status = StrategyStatus.armed if s.triggers else StrategyStatus.active
         self._manager.store.update(s)
         self._manager.push.strategy(s)
