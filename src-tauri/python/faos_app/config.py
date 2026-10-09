@@ -46,6 +46,10 @@ class AlgoSettings(BaseModel):
     timeout: int = 300  # 算法看门狗超时（秒，超时停止并告警）
 
 
+class LogSettings(BaseModel):
+    days: int = 15  # 日志保留天数（按天分文件，过期自动清理）
+
+
 SHFE_PRODUCTS_DEFAULT = [
     "ad", "ag", "al", "ao", "au", "br", "bu", "cu", "fu", "hc",
     "ni", "op", "pb", "rb", "ru", "sn", "sp", "ss", "wr", "zn",
@@ -64,6 +68,7 @@ class Settings(BaseModel):
     mqtt: MqttSettings = MqttSettings()
     ctp: CtpSettings = CtpSettings()
     algo: AlgoSettings = AlgoSettings()
+    log: LogSettings = LogSettings()
     products: list[str] = SHFE_PRODUCTS_DEFAULT  # 表格上方品种筛选列表，配置文件可增删
     product_ticks: dict[str, float] = PRODUCT_TICKS_DEFAULT  # 品种 -> 最小变动价位
 

@@ -53,7 +53,7 @@ def _build_services(settings: Settings, portal, pusher: Pusher) -> AppState:
 
     portal.start_task_soon(flush_spread_loop)
 
-    trace_spread = bool(os.environ.get("FAOS_TRACE_SPREAD"))  # 逐帧行情日志默认关（170 行/秒 I/O）
+    trace_spread = bool(os.environ.get("FAOS_TRACE_SPREAD"))  # 行情入日志需显式开启（高频写盘曾致性能问题）
 
     def on_spread(pair: str, q: SpreadQuote) -> None:
         if trace_spread:
@@ -119,9 +119,13 @@ def _build_services(settings: Settings, portal, pusher: Pusher) -> AppState:
 
 
 def main() -> int:
-    banner()
     settings = load_effective_settings(settings_path())  # 默认 → repo/exe 本地配置 → APPDATA
+    from faos_app.log import cleanup_old_logs, configure as log_configure
+
+    log_configure(settings.log.days)  # 日志保留天数（设置面板可改）
+    banner()
     log(f"FAOS_SETTINGS_LOADED {settings.mqtt.host}:{settings.mqtt.port}")
+    cleanup_old_logs()  # 启动清理过期日志
     with (
         start_blocking_portal("asyncio") as portal,
         AsyncTools(portal) as async_tools,

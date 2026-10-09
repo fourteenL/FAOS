@@ -9,6 +9,7 @@ const form = reactive({
   mqtt: { host: "", port: 1883, user: "", password: "" },
   ctp: {},
   algo: { payup: 5, interval: 3, lock: false, timeout: 300 },
+  log: { days: 15 },
 });
 
 async function open() {
@@ -19,6 +20,7 @@ async function open() {
     form.mqtt = { ...s.mqtt };
     form.ctp = { ...s.ctp };
     form.algo = { ...s.algo };
+    form.log = { days: s.log?.days ?? 15 };
   } catch (e) {
     message.error("读取设置失败: " + e);
   } finally {
@@ -33,6 +35,7 @@ async function save() {
       mqtt: { ...form.mqtt },
       ctp: { ...form.ctp },
       algo: { ...form.algo },
+      log: { days: form.log.days ?? 15 },
     });
     message.success("已保存（连接参数重启应用后生效；密码未改动时无需重填）");
     visible.value = false;
@@ -80,6 +83,11 @@ async function save() {
               <a-form-item label="轮询间隔（秒）"><a-input-number v-model:value="form.algo.interval" :min="1" style="width: 100%" /></a-form-item>
               <a-form-item label="超时停止（秒）"><a-input-number v-model:value="form.algo.timeout" :min="10" style="width: 100%" /></a-form-item>
               <a-form-item label="锁仓"><a-switch v-model:checked="form.algo.lock" /></a-form-item>
+            </div>
+
+            <a-divider orientation="left" plain>日志</a-divider>
+            <div class="grid2">
+              <a-form-item label="保留天数（按天分文件，过期自动清理）"><a-input-number v-model:value="form.log.days" :min="1" :max="365" style="width: 100%" /></a-form-item>
             </div>
           </a-form>
         </a-spin>
