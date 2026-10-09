@@ -32,20 +32,19 @@ const offline = computed(() => store.mqttState !== "connected" || (store.ctpStat
   <div class="banner">
     <slot name="actions" />
     <span class="item">
-      <span class="dot" :style="{ background: mqttColor }" /> MQTT（7×24）：{{ ZH_ALL[store.mqttState] || store.mqttState }}
+      <span class="dot" :style="{ background: mqttColor }" /> 行情（7×24）：{{ ZH_ALL[store.mqttState] || store.mqttState }}
       <a v-if="!['connected', 'connecting'].includes(store.mqttState)" style="margin-left: 6px" @click="connectMqtt">连接</a>
       <a v-if="store.mqttState === 'connected'" style="margin-left: 6px; color: #999" @click="store.disconnectMqtt()">断开</a>
     </span>
     <span class="item">
       <span class="dot" :style="{ background: ctpColor }" /> CTP(SimNow)：{{ ZH_ALL[store.ctpState] || store.ctpState }}
       <a v-if="!['ready', 'connected', 'logining'].includes(store.ctpState)" style="margin-left: 6px" @click="connectCtp">连接</a>
-      <span class="hint">（SimNow 仅交易时段可登录：交易日 8:30–16:30 / 夜盘 20:30–次日 2:30）</span>
     </span>
   </div>
 </template>
 
 <style scoped>
-.banner { display: flex; gap: 24px; align-items: center; padding: 6px 12px; background: #fafafa; border-bottom: 1px solid #f0f0f0; font-size: 13px; }
+.banner { display: flex; gap: 24px; align-items: center; padding: 2px 12px; background: #fafafa; border-bottom: 1px solid #f0f0f0; font-size: 13px; height: 32px; }
 .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
 .hint { color: #999; font-size: 12px; margin-left: 4px; }
 </style>

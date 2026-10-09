@@ -135,6 +135,17 @@ async def get_settings(body: Empty, state: Annotated[AppState, State()]) -> Sett
     return masked_settings(state.settings)  # 密码回显掩码
 
 
+class PasswordsResp(BaseModel):
+    mqtt: str = ""
+    ctp: str = ""
+
+
+@commands.command()
+async def get_passwords(body: Empty, state: Annotated[AppState, State()]) -> PasswordsResp:
+    """设置面板「显示密码」：返回明文（本机自用，用户明确要求可查看原文）。"""
+    return PasswordsResp(mqtt=state.settings.mqtt.password, ctp=state.settings.ctp.密码)
+
+
 @commands.command()
 async def save_settings(body: Settings, state: Annotated[AppState, State()]) -> Ok:
     merged = merge_masked_settings(body, state.settings)  # 掩码保持原密码
