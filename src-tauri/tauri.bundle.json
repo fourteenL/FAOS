@@ -39,7 +39,8 @@
     },
     "windows": {
       "nsis": {
-        "installerHooks": "./nsis/hooks.nsh"
+        "installerHooks": "./nsis/hooks.nsh",
+        "languages": ["SimpChinese"]
       }
     }
   }
