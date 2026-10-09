@@ -5,30 +5,35 @@ import { useAppStore } from "../stores/app.js";
 const emit = defineEmits(["select"]);
 const store = useAppStore();
 
-// 方向持仓标签：由两腿实际持仓推导（CTP 持仓事件驱动）——状态列唯一显示
+// 方向持仓标签：由策略自身 held_units 推导（不用全局合约持仓——共享腿会串显到别的行）
 function directionOf(row) {
-  const aL = posNum(row, row.leg_a, "long");
-  const aS = posNum(row, row.leg_a, "short");
-  const bL = posNum(row, row.leg_b, "long");
-  const bS = posNum(row, row.leg_b, "short");
+  const held = row.held_units || 0;
   const armed = (action) => (row.triggers || []).some((t) => t.action === action);
-  const hasLong = (aL > 0 && bS > 0) || armed("open_long");   // 多头持仓或已挂做多触发单
-  const hasShort = (aS > 0 && bL > 0) || armed("open_short"); // 空头持仓或已挂做空触发单
+  const hasLong = held > 0 || armed("open_long");   // 多头价差或已挂做多触发单
+  const hasShort = held < 0 || armed("open_short"); // 空头价差或已挂做空触发单
   if (hasLong && hasShort) return { label: "空多", cls: "dir-active" };
   if (hasShort) return { label: "做空", cls: "dir-active" };
   if (hasLong) return { label: "做多", cls: "dir-active" };
   return { label: "空闲", cls: "dir-free" };
 }
 
-function posNum(row, leg, dir) {
-  const p = store.positions[`${leg}.SHFE`];
-  return p ? p[dir] || 0 : 0;
+// 策略归属的腿仓位：held_units × 单份数 推导两腿持仓（仅本行下单产生的仓位在此行显示）
+function legPos(row, leg, dir) {
+  const held = row.held_units || 0;
+  const vol = Math.abs(held) * (row.single_lots || 1);
+  if (held < 0) { // 做空价差：A 空头 + B 多头
+    return (leg === "a" && dir === "short") || (leg === "b" && dir === "long") ? vol : 0;
+  }
+  if (held > 0) { // 做多价差：A 多头 + B 空头
+    return (leg === "a" && dir === "long") || (leg === "b" && dir === "short") ? vol : 0;
+  }
+  return 0;
 }
 
-// 仓位单元格：有持仓标红加粗，无数据显示 --
+// 仓位单元格：非零标红加粗，零仓显示 --
 function posCell(row, leg, dir) {
-  const v = posOf(row, leg, dir);
-  return { text: v == null ? "--" : v, hold: (v || 0) > 0 };
+  const v = legPos(row, leg, dir);
+  return { text: v > 0 ? v : "--", hold: v > 0 };
 }
 
 function quoteOf(row, key) {
@@ -69,12 +74,6 @@ const columns = computed(() => [
   { title: "单份", dataIndex: "single_lots", key: "single_lots", align: "center", width: 70 },
   { title: "总份", dataIndex: "total_lots", key: "total_lots", align: "center", width: 70 },
 ]);
-
-function posOf(row, leg, dir) {
-  const sym = `${leg}.SHFE`;
-  const p = store.positions[sym];
-  return p ? p[dir] : null;
-}
 
 function onRow(row) {
   return {
@@ -140,16 +139,16 @@ const ACTION_BY_KEY = {
         <span :class="colorOf(record, 'long_cover')">{{ fmt(quoteOf(record, "long_cover")) }}</span>
       </template>
       <template v-else-if="column.key === 'a_short'">
-        <span :class="{ 'pos-hold': posCell(record, record.leg_a, 'short').hold }">{{ posCell(record, record.leg_a, 'short').text }}</span>
+        <span :class="{ 'pos-hold': posCell(record, 'a', 'short').hold }">{{ posCell(record, 'a', 'short').text }}</span>
       </template>
       <template v-else-if="column.key === 'b_short'">
-        <span :class="{ 'pos-hold': posCell(record, record.leg_b, 'short').hold }">{{ posCell(record, record.leg_b, 'short').text }}</span>
+        <span :class="{ 'pos-hold': posCell(record, 'b', 'short').hold }">{{ posCell(record, 'b', 'short').text }}</span>
       </template>
       <template v-else-if="column.key === 'a_long'">
-        <span :class="{ 'pos-hold': posCell(record, record.leg_a, 'long').hold }">{{ posCell(record, record.leg_a, 'long').text }}</span>
+        <span :class="{ 'pos-hold': posCell(record, 'a', 'long').hold }">{{ posCell(record, 'a', 'long').text }}</span>
       </template>
       <template v-else-if="column.key === 'b_long'">
-        <span :class="{ 'pos-hold': posCell(record, record.leg_b, 'long').hold }">{{ posCell(record, record.leg_b, 'long').text }}</span>
+        <span :class="{ 'pos-hold': posCell(record, 'b', 'long').hold }">{{ posCell(record, 'b', 'long').text }}</span>
       </template>
       <template v-else-if="column.key === 'status'">
         <span :class="directionOf(record).cls">{{ directionOf(record).label }}</span>
