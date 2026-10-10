@@ -252,6 +252,15 @@ class CtpService:
             return []
         return [vt for vt in oms.contracts if vt.endswith(".SHFE")]
 
+    def refresh_contract_seed(self) -> int:
+        """以 OMS 合约覆盖刷新种子文件（CTP 就绪回调调用，供离线测试兜底）。"""
+        symbols = self.get_contract_symbols()
+        if symbols:
+            from faos_app.contract_seed import save_seed
+
+            save_seed(symbols)
+        return len(symbols)
+
     def get_positions(self) -> list:
         oms = self._oms()
         return list(oms.get_all_positions()) if oms else []

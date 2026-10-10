@@ -43,6 +43,8 @@ def _build_services(settings: Settings, portal, pusher: Pusher) -> AppState:
         store, pusher,
         legs_subscriber=ctp.subscribe_symbols,          # 策略创建 → CTP 订阅两腿行情
         contracts_provider=ctp.get_contract_symbols,    # 品种本地展开（vnpy 合约列表）
+        contract_stale_notifier=lambda product: pusher.notice(
+            "warn", f"品种 {product} 使用本地合约种子（非实时，开盘连接 CTP 后自动刷新）"),
     )
     monitor = TriggerMonitor(manager)  # 执行器在 CTP/价差引擎就绪后注入
     state = AppState(settings=settings, store=store,
@@ -75,12 +77,23 @@ def _build_services(settings: Settings, portal, pusher: Pusher) -> AppState:
 
         state.leg_ops = LegOps(ctp, store, chasing_provider=spread_service.chasing_texts)
         # CTP 就绪（合约查询完成）后经 portal 串行化做持仓校正
-        ctp.on_ready = lambda: portal.start_task_soon(manager.reconcile_holdings, ctp)
+        ctp.on_ready = lambda: portal.start_task_soon(_on_ctp_ready, manager, ctp)
     except Exception as e:  # CTP 初始化失败不阻塞应用启动
         pusher.notice("error", f"CTP 初始化失败: {e}")
         log(f"FAOS_CTP_INIT_FAIL {e}")
 
     return state
+
+
+def _on_ctp_ready(manager, ctp) -> None:
+    """CTP 就绪（合约加载完成）：刷新合约种子文件 + 持仓校正。"""
+    try:
+        n = ctp.refresh_contract_seed()
+        if n:
+            log(f"FAOS_CONTRACT_SEED_REFRESHED {n}")
+    except Exception as e:
+        log(f"FAOS_CONTRACT_SEED_FAIL {e}")
+    manager.reconcile_holdings(ctp)
 
 
 def main() -> int:

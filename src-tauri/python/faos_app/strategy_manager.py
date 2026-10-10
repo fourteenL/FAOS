@@ -23,11 +23,13 @@ def _now() -> str:
 class StrategyManager:
     def __init__(self, store: StrategyStore, push,
                  legs_subscriber: Optional[Callable[[list], None]] = None,
-                 contracts_provider: Optional[Callable[[], list]] = None):
+                 contracts_provider: Optional[Callable[[], list]] = None,
+                 contract_stale_notifier: Optional[Callable[[str], None]] = None):
         self._store = store
         self._push = push
         self._legs_subscriber = legs_subscriber or (lambda symbols: None)  # CTP 行情订阅两腿
         self._contracts_provider = contracts_provider or (lambda: [])      # vnpy 合约列表（品种展开用）
+        self._contract_stale_notifier = contract_stale_notifier or (lambda product: None)
         # 停止策略时的扩展点（T10 的 spread_service 注册撤算法钩子）
         self.on_stop_hooks: list[Callable[[Strategy], None]] = []
         # 方向级停止扩展点：hook(strategy, side)，side ∈ {"short","long"}
@@ -67,12 +69,13 @@ class StrategyManager:
         product = product.strip()
         if not product.isalpha():
             raise ValueError("品种代码应为纯字母，如 ag")
-        symbols = [s.split(".")[0] for s in self._contracts_provider()
-                   if s.split(".")[1:2] == ["SHFE"]]
-        matched = sorted({s for s in symbols
-                          if "".join(ch for ch in s if ch.isalpha()) == product})
+        from faos_app.contract_seed import symbols_for_product
+
+        matched, stale = symbols_for_product(product, self._contracts_provider())
         if not matched:
-            raise ValueError(f"vnpy 合约中未找到品种 {product}（需先连接 CTP 并完成合约加载）")
+            raise ValueError(f"品种 {product} 无可用合约（开盘连接 CTP 后自动刷新合约表；或检查品种代码）")
+        if stale:  # 来源为种子/兜底（非开盘或 OMS 未就绪），提醒后仍可用（离线测试）
+            self._contract_stale_notifier(product)
         created, legs = 0, []
         for i in range(len(matched)):
             for j in range(i + 1, len(matched)):
