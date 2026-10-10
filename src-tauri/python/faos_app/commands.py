@@ -262,7 +262,6 @@ async def login(body: LoginBody, state: Annotated[AppState, State()]) -> LoginRe
 
 
 @commands.command()
-@commands.command()
 async def get_login_state(body: Empty, state: Annotated[AppState, State()]) -> LoginStateResp:
     """登录页预填：记住我的凭据（remembered 标记是否来自已保存配置）。"""
     from faos_app.config import MASK
