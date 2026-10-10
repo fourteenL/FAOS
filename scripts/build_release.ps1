@@ -1,6 +1,9 @@
 ﻿# FAOS standalone 发布构建脚本
 # 产物：src-tauri/target/bundle-release/bundle/nsis/FAOS_x.y.z_x64-setup.exe（及 msi）
 # 前置：rustup(msvc)、node/npm 已安装；本脚本自动准备嵌入式 Python。
+# 版本命名：默认生成 beta 包（0.1.0-beta.N 自增，扫现有包取最大号+1）；
+#          -Release 参数生成正式包（0.1.0，无 beta 后缀）。
+param([switch]$Release)
 
 $ErrorActionPreference = "Stop"
 $repo = Split-Path -Parent $PSScriptRoot
@@ -44,10 +47,31 @@ Write-Host "[3/4] npm install ..."
 Push-Location $repo
 npm install
 
+# 3.5 版本命名：beta 自增（默认）或正式包（-Release）
+$bundleCfg = Join-Path $repo "src-tauri\tauri.bundle.json"
+$cfg = Get-Content $bundleCfg -Raw -Encoding UTF8 | ConvertFrom-Json
+$base = "0.1.0"
+if ($Release) {
+    $version = $base
+    Write-Host "[3.5/4] 正式包版本：$version"
+} else {
+    $nsisDir = Join-Path $repo "src-tauri\target\bundle-release\bundle\nsis"
+    $max = 0
+    if (Test-Path $nsisDir) {
+        Get-ChildItem $nsisDir -Filter "FAOS_${base}-beta.*_x64-setup.exe" -ErrorAction SilentlyContinue | ForEach-Object {
+            if ($_.Name -match "-beta\.(\d+)_") { $max = [Math]::Max($max, [int]$Matches[1]) }
+        }
+    }
+    $version = "${base}-beta.$($max + 1)"
+    Write-Host "[3.5/4] beta 包版本：$version（现有最大 beta.$max）"
+}
+$cfg.version = $version
+$cfg | ConvertTo-Json -Depth 20 | Set-Content $bundleCfg -Encoding UTF8
+
 # 4. tauri build（standalone bundle 配置 + bundle-release profile）
 Write-Host "[4/4] tauri build ..."
 $env:PYO3_PYTHON = "$pyembed\python.exe"
-npm run tauri -- build --config=src-tauri/tauri.bundle.json -- --profile bundle-release
+npm run tauri -- build --config=src-tauri/tauri.bundle.json --bundles nsis -- --profile bundle-release
 if ($LASTEXITCODE -ne 0) { throw "tauri build 失败" }
 
 Pop-Location
