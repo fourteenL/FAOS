@@ -19,6 +19,24 @@ from vnpy.trader.constant import Exchange
 from faos_app.config import CtpSettings
 
 
+_STEP_LABELS = [
+    ("交易服务器连接成功", "① 连接交易服务器"),
+    ("行情服务器连接成功", "① 连接行情服务器"),
+    ("交易服务器授权验证成功", "② 授权验证"),
+    ("交易服务器登录成功", "③ 登录"),
+    ("结算信息确认成功", "④ 结算确认"),
+    ("合约信息查询成功", "⑤ 合约加载完成"),
+]
+
+
+def _step_of(msg: str) -> str:
+    """vnpy 日志 → 顶栏进度步骤文案（原文下发兜底）。"""
+    for marker, label in _STEP_LABELS:
+        if marker in msg:
+            return label
+    return msg
+
+
 def build_ctp_setting(s: CtpSettings) -> dict:
     """CtpSettings → vnpy_ctp 网关中文键 setting dict。"""
     return {
@@ -206,11 +224,15 @@ class CtpService:
     def _on_log(self, data) -> None:
         msg = data if isinstance(data, str) else getattr(data, "msg", None) or data.get("msg", "")
         if "交易服务器连接成功" in msg or "行情服务器连接成功" in msg:
-            self._set_state("connected")
+            self._set_state("connected", _step_of(msg))
+        elif "交易服务器授权验证成功" in msg:
+            self._set_state("connected", _step_of(msg))
         elif "交易服务器登录成功" in msg:
-            self._set_state("logining")
+            self._set_state("logining", _step_of(msg))
+        elif "结算信息确认成功" in msg:
+            self._set_state("logining", _step_of(msg))
         elif "合约信息查询成功" in msg:
-            self._set_state("ready")
+            self._set_state("ready", _step_of(msg))
             if not self._ready_fired:
                 self._ready_fired = True
                 self._push.notice("success", "CTP 登录成功，交易已就绪")
@@ -226,7 +248,7 @@ class CtpService:
 
     def _set_state(self, state: str, msg: Optional[str] = None) -> None:
         self.state = state
-        self._push.conn_state("ctp", state, msg)  # 前端监听 py://conn-state（kind=ctp）
+        self._push.conn_state("ctp", state, msg)  # 前端监听 py://conn-state（kind=ctp；msg=进度步骤）
 
     # -- 测试/驱动 ------------------------------------------------------------
 

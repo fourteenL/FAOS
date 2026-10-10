@@ -32,6 +32,7 @@ export const useAppStore = defineStore("app", {
     algos: [],       // 价差算法状态（T12 用）
     notices: [],
     ctpState: "disconnected",
+    ctpStep: "",  // 连接进度步骤（后端关键日志映射）
     selectedId: null,
     products: [],
     productFilter: null,
@@ -83,7 +84,11 @@ export const useAppStore = defineStore("app", {
         if (this.notices.length > 50) this.notices.shift();
       });
       listenPy("conn-state", (p) => {
-        if (p.kind === "ctp") this.ctpState = p.state;
+        if (p.kind === "ctp") {
+          this.ctpState = p.state;
+          this.ctpStep = p.msg || "";  // 进度步骤（就绪/断开时清空由后端控制）
+          if (p.state === "disconnected") this.ctpStep = "";
+        }
       });
       listenPy("position", (p) => {
         const sym = p.vt_symbol;

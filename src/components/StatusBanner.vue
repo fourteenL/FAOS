@@ -24,6 +24,7 @@ async function connectCtp() {
     <slot name="actions" />
     <span class="item">
       <span class="dot" :style="{ background: ctpColor }" /> CTP(SimNow)：{{ ZH_ALL[store.ctpState] || store.ctpState }}
+      <span v-if="store.ctpStep && store.ctpState !== 'ready'" class="step">{{ store.ctpStep }}…</span>
       <a v-if="!['ready', 'connected', 'logining'].includes(store.ctpState)" style="margin-left: 6px" @click="connectCtp">连接</a>
     </span>
   </div>
@@ -32,4 +33,5 @@ async function connectCtp() {
 <style scoped>
 .banner { display: flex; gap: 24px; align-items: center; padding: 2px 12px; background: #fafafa; border-bottom: 1px solid #f0f0f0; font-size: 13px; height: 32px; }
 .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+.step { color: #faad14; font-size: 12px; margin-left: 8px; }
 </style>
