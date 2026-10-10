@@ -62,6 +62,7 @@ class Settings(BaseModel):
     algo: AlgoSettings = AlgoSettings()
     log: LogSettings = LogSettings()
     products: list[str] = SHFE_PRODUCTS_DEFAULT  # 表格上方品种筛选列表，配置文件可增删
+    product_dominant: dict[str, str] = {}  # 品种主力合约配置覆盖（如 {"ag": "2612"}；缺省=最近未来月自动推断）
     product_ticks: dict[str, float] = PRODUCT_TICKS_DEFAULT  # 品种 -> 最小变动价位
 
 

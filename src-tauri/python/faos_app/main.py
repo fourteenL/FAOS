@@ -45,6 +45,7 @@ def _build_services(settings: Settings, portal, pusher: Pusher) -> AppState:
         contracts_provider=ctp.get_contract_symbols,    # 品种本地展开（vnpy 合约列表）
         contract_stale_notifier=lambda product: pusher.notice(
             "warn", f"品种 {product} 使用本地合约种子（非实时，开盘连接 CTP 后自动刷新）"),
+        settings=settings,
     )
     monitor = TriggerMonitor(manager)  # 执行器在 CTP/价差引擎就绪后注入
     state = AppState(settings=settings, store=store,

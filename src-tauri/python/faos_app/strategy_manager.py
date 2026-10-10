@@ -24,12 +24,14 @@ class StrategyManager:
     def __init__(self, store: StrategyStore, push,
                  legs_subscriber: Optional[Callable[[list], None]] = None,
                  contracts_provider: Optional[Callable[[], list]] = None,
-                 contract_stale_notifier: Optional[Callable[[str], None]] = None):
+                 contract_stale_notifier: Optional[Callable[[str], None]] = None,
+                 settings=None):
         self._store = store
         self._push = push
         self._legs_subscriber = legs_subscriber or (lambda symbols: None)  # CTP 行情订阅两腿
         self._contracts_provider = contracts_provider or (lambda: [])      # vnpy 合约列表（品种展开用）
         self._contract_stale_notifier = contract_stale_notifier or (lambda product: None)
+        self._settings = settings
         # 停止策略时的扩展点（T10 的 spread_service 注册撤算法钩子）
         self.on_stop_hooks: list[Callable[[Strategy], None]] = []
         # 方向级停止扩展点：hook(strategy, side)，side ∈ {"short","long"}
@@ -65,34 +67,39 @@ class StrategyManager:
         return s
 
     def create_product(self, product: str, single_lots: float, total_lots: float) -> tuple[int, int]:
-        """品种展开：从 vnpy 合约列表取该品种全部在市合约，本地生成 C(n,2) 组合。"""
+        """品种展开：B 腿固定为品种主力合约（配置覆盖>最近未来月），A 腿=其余合约依次配对。"""
         product = product.strip()
         if not product.isalpha():
             raise ValueError("品种代码应为纯字母，如 ag")
         from faos_app.contract_seed import symbols_for_product
 
-        matched, stale = symbols_for_product(product, self._contracts_provider())
+        matched, dominant, stale = symbols_for_product(
+            product, self._contracts_provider(), self._dominant_overrides())
         if not matched:
             raise ValueError(f"品种 {product} 无可用合约（开盘连接 CTP 后自动刷新合约表；或检查品种代码）")
         if stale:  # 来源为种子/兜底（非开盘或 OMS 未就绪），提醒后仍可用（离线测试）
             self._contract_stale_notifier(product)
+        others = [s for s in matched if s != dominant]
         created, legs = 0, []
-        for i in range(len(matched)):
-            for j in range(i + 1, len(matched)):
-                pair = f"{matched[i]}&{matched[j]}"
-                if self._find_by_pair(pair) is not None:
-                    continue
-                s = Strategy(id=self._store.next_id(), leg_a=matched[i], leg_b=matched[j],
-                             product=product, single_lots=single_lots, total_lots=total_lots,
-                             status=StrategyStatus.active)
-                self._store.add(s)
-                self._push.strategy(s)
-                legs += [f"{matched[i]}.SHFE", f"{matched[j]}.SHFE"]
-                created += 1
+        for sym in others:  # 组合：sym&主力（B 腿=主力，被动对冲腿）
+            pair = f"{sym}&{dominant}"
+            if self._find_by_pair(pair) is not None:
+                continue
+            s = Strategy(id=self._store.next_id(), leg_a=sym, leg_b=dominant,
+                         product=product, single_lots=single_lots, total_lots=total_lots,
+                         status=StrategyStatus.active)
+            self._store.add(s)
+            self._push.strategy(s)
+            legs += [f"{sym}.SHFE", f"{dominant}.SHFE"]
+            created += 1
         if legs:
             self._legs_subscriber(sorted(set(legs)))
         existing = sum(1 for s in self._store.list() if self._product_of(s.pair) == product)
         return created, existing
+
+    def _dominant_overrides(self) -> dict:
+        """主力配置覆盖（settings.product_dominant，可选）。"""
+        return dict(getattr(self._settings, "product_dominant", None) or {})
 
     def subscribe(self, strategy_id: int) -> Strategy:
         s = self._require(strategy_id)
