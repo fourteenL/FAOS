@@ -30,8 +30,12 @@ $distCfg = Join-Path $repo "config\settings.dist.json"
 & $pyembed\python.exe -c "import json,pathlib; s=json.loads(pathlib.Path(r'$(Join-Path $repo 'config\settings.local.json')').read_text(encoding='utf-8')); s.setdefault('mqtt',{}).update(user='',password=''); s.setdefault('ctp',{}).update({'用户名':'','密码':''}); pathlib.Path(r'$distCfg').write_text(json.dumps(s,ensure_ascii=False,indent=2),encoding='utf-8')"
 if ($LASTEXITCODE -ne 0) { throw "生成发行配置失败" }
 
-# 2.6 清理 .pyc/__pycache__：NSIS 单线程逐文件解包，~5600 个缓存文件占 29% 文件数，
-#     删除后安装 47s→40s、包体 193MB→177MB；首次启动自动重建缓存（实测启动正常）
+# 2.6 清理打包冗余（NSIS 单线程逐文件解包，减文件数与换快解压是唯二杠杆）：
+#     a) PySide6（482MB/数千文件）——vnpy 拖入的 Qt 绑定，FAOS 用 Tauri 做 UI 完全不用
+#     b) __pycache__/.pyc——首次启动自动重建
+#     实测：47.3s → zlib 压缩 33.3s → 剔除 PySide6 22.4s；包体 193MB → 71.5MB
+Remove-Item -Recurse -Force (Join-Path $pyembed "Lib\site-packages\PySide6") -ErrorAction SilentlyContinue
+Get-ChildItem $pyembed -Directory -Filter "PySide6*" -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force
 Get-ChildItem $pyembed -Recurse -Directory -Filter "__pycache__" -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force
 Get-ChildItem $pyembed -Recurse -Include "*.pyc", "*.pyo" -File -ErrorAction SilentlyContinue | Remove-Item -Force
 

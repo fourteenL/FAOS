@@ -40,7 +40,10 @@
     "windows": {
       "nsis": {
         "installerHooks": "./nsis/hooks.nsh",
-        "languages": ["SimpChinese"]
+        "languages": [
+          "SimpChinese"
+        ],
+        "compression": "zlib"
       }
     }
   }
