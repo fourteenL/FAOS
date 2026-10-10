@@ -20,7 +20,7 @@ class StrategyManager:
         self._store = store
         self._feed = feed
         self._push = push
-        self._product_requests: dict[str, tuple[float, float]] = {}  # product -> (single, total)
+        self._product_requests: dict[str, tuple[float, float, float]] = {}  # product -> (single, total, 过期时刻)
         # 停止策略时的扩展点（T10 的 spread_service 注册撤算法钩子）
         self.on_stop_hooks: list[Callable[[Strategy], None]] = []
         # 方向级停止扩展点：hook(strategy, side)，side ∈ {"short","long"}
@@ -67,7 +67,9 @@ class StrategyManager:
             raise ValueError("品种代码应为纯字母，如 ag")
         # 品种条目直接发 tq/sub（服务端展开并推送该品种全部组合）；
         # 已存在的行在下一笔回执时更新单份/总份（重复订阅不再"无反应"）
-        self._product_requests[product] = (single_lots, total_lots)
+        import time as _time
+
+        self._product_requests[product] = (single_lots, total_lots, _time.monotonic() + 30)
         self._feed.subscribe_pairs([product])
         existing = sum(1 for s in self._store.list() if self._product_of(s.pair) == product)
         return 0, existing
@@ -270,11 +272,20 @@ class StrategyManager:
     # -- MQTT 回执 / 行情驱动 ---------------------------------------------------
 
     def on_mq_status(self, status: MqStatus) -> None:
+        import time as _time
+
         for bad in status.invalid:
             self._push.notice("warn", f"订阅条目无效: {bad}")
 
         subscribed = set(status.subscribed)
         pending = set(status.pending)
+
+        # 品种订阅参数只在有效期内应用：服务端每 ~5s 推一次 tq/status 快照，
+        # 粘滞缓存会把用户后来改的单份/总份反复打回订阅时的值（实测跳变根因）
+        now_ts = _time.monotonic()
+        for p in list(self._product_requests):
+            if self._product_requests[p][2] < now_ts:
+                self._product_requests.pop(p)
 
         # 品种展开：subscribed 中出现尚无策略的 pair → 建策略；
         # 已存在且其品种在本会话被重新订阅过 → 更新单份/总份（参数生效）
@@ -283,14 +294,14 @@ class StrategyManager:
                 continue
             product = self._product_of(pair)
             existing = self._find_by_pair(pair)
-            lots = self._product_requests.get(product)
+            req = self._product_requests.get(product)
             if existing is not None:
-                if lots and (existing.single_lots, existing.total_lots) != lots:
-                    existing.single_lots, existing.total_lots = lots
+                if req and (existing.single_lots, existing.total_lots) != req[:2]:
+                    existing.single_lots, existing.total_lots = req[0], req[1]
                     self._store.update(existing)
                     self._push.strategy(existing)
                 continue
-            use_lots = lots or (1, 1)
+            use_lots = req[:2] if req else (1, 1)
             leg_a, _, leg_b = pair.partition("&")
             s = Strategy(id=self._store.next_id(), leg_a=leg_a, leg_b=leg_b,
                          product=product or None, single_lots=use_lots[0], total_lots=use_lots[1],
