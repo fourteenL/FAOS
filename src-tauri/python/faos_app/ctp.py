@@ -245,6 +245,13 @@ class CtpService:
             req = SubscribeRequest(symbol=symbol, exchange=Exchange(exchange or "SHFE"))
             self.main_engine.subscribe(req, "CTP")
 
+    def get_contract_symbols(self) -> list:
+        """vnpy OMS 已加载的全部 SHFE 合约号（品种本地展开用）。"""
+        oms = self._oms()
+        if not oms:
+            return []
+        return [vt for vt in oms.contracts if vt.endswith(".SHFE")]
+
     def get_positions(self) -> list:
         oms = self._oms()
         return list(oms.get_all_positions()) if oms else []

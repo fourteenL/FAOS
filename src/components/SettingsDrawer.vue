@@ -6,29 +6,29 @@ import { call } from "../api/pytauri.js";
 const visible = ref(false);
 const loading = ref(false);
 const form = reactive({
-  mqtt: { host: "", port: 1883, user: "", password: "" },
   ctp: {},
   algo: { payup: 5, interval: 3, lock: false, timeout: 300 },
   log: { days: 15 },
 });
 
 // 密码查看：默认掩码，点「显示」拉取明文（get_passwords），未编辑时隐藏还原掩码
-const revealed = reactive({ mqtt: false, ctp: false });
+const revealed = ref(false);
 const realPw = ref(null);
 
-async function toggleReveal(which) {
+async function toggleReveal() {
+  const which = "ctp";
   try {
-    if (!revealed[which] && !realPw.value) {
+    if (!revealed.value && !realPw.value) {
       realPw.value = await call("get_passwords", {});
     }
-    const obj = which === "mqtt" ? form.mqtt : form.ctp;
-    const key = which === "mqtt" ? "password" : "密码";
-    if (!revealed[which]) {
-      if (obj[key] === "******") obj[key] = realPw.value[which] || "";
-      revealed[which] = true;
+    const obj = form.ctp;
+    const key = "密码";
+    if (!revealed.value) {
+      if (obj[key] === "******") obj[key] = realPw.value?.ctp || "";
+      revealed.value = true;
     } else {
-      if (realPw.value && obj[key] === realPw.value[which]) obj[key] = "******"; // 用户改过则保留输入
-      revealed[which] = false;
+      if (realPw.value && obj[key] === realPw.value.ctp) obj[key] = "******"; // 用户改过则保留输入
+      revealed.value = false;
     }
   } catch (e) {
     message.error("读取密码失败: " + e);
@@ -40,7 +40,6 @@ async function open() {
   loading.value = true;
   try {
     const s = await call("get_settings", {});
-    form.mqtt = { ...s.mqtt };
     form.ctp = { ...s.ctp };
     form.algo = { ...s.algo };
     form.log = { days: s.log?.days ?? 15 };
@@ -55,7 +54,6 @@ defineExpose({ open });
 async function save() {
   try {
     await call("save_settings", {
-      mqtt: { ...form.mqtt },
       ctp: { ...form.ctp },
       algo: { ...form.algo },
       log: { days: form.log.days ?? 15 },
@@ -78,24 +76,12 @@ async function save() {
       <div class="modal-body">
         <a-spin :spinning="loading">
           <a-form layout="vertical">
-            <a-divider orientation="left" plain>行情</a-divider>
-            <div class="grid2">
-              <a-form-item label="地址"><a-input v-model:value="form.mqtt.host" /></a-form-item>
-              <a-form-item label="端口"><a-input-number v-model:value="form.mqtt.port" style="width: 100%" /></a-form-item>
-              <a-form-item label="用户名"><a-input v-model:value="form.mqtt.user" /></a-form-item>
-              <a-form-item label="密码">
-                <a-input v-model:value="form.mqtt.password" :type="revealed.mqtt ? 'text' : 'password'">
-                  <template #suffix><a class="pw-eye" @click="toggleReveal('mqtt')">{{ revealed.mqtt ? "隐藏" : "显示" }}</a></template>
-                </a-input>
-              </a-form-item>
-            </div>
-
             <a-divider orientation="left" plain>CTP 交易（SimNow）</a-divider>
             <div class="grid2">
               <a-form-item label="用户名"><a-input v-model:value="form.ctp['用户名']" /></a-form-item>
               <a-form-item label="密码">
-                <a-input v-model:value="form.ctp['密码']" :type="revealed.ctp ? 'text' : 'password'">
-                  <template #suffix><a class="pw-eye" @click="toggleReveal('ctp')">{{ revealed.ctp ? "隐藏" : "显示" }}</a></template>
+                <a-input v-model:value="form.ctp['密码']" :type="revealed ? 'text' : 'password'">
+                  <template #suffix><a class="pw-eye" @click="toggleReveal()">{{ revealed ? "隐藏" : "显示" }}</a></template>
                 </a-input>
               </a-form-item>
               <a-form-item label="经纪商代码"><a-input v-model:value="form.ctp['经纪商代码']" /></a-form-item>

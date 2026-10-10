@@ -12,7 +12,7 @@
 from typing import Optional, Protocol
 
 from faos_app.models import Strategy, StrategyStatus, Trigger, TriggerAction
-from faos_app.mqtt_feed import SpreadQuote
+from faos_app.models import SpreadQuote
 
 
 def should_trigger(action: str, q: SpreadQuote, spread: float) -> bool:

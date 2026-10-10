@@ -45,24 +45,13 @@ function posCell(row, leg, dir) {
   return { text: v > 0 ? v : "--", hold: v > 0 };
 }
 
-function quoteOf(row, key) {
-  const q = store.quotes[row.pair];
-  return q ? q[key] : null;
-}
-
 function fmt(v) {
   return v == null ? "--" : Number(v).toFixed(2);
 }
 
-// 涨红跌绿：与上一帧比较
-function colorOf(row, key) {
-  const q = store.quotes[row.pair];
-  const prev = store.prevQuotes[row.pair];
-  if (!q || !prev) return "";
-  const now = q[key];
-  const old = prev[key];
-  if (now == null || old == null || now === old) return "";
-  return now > old ? "up" : "down";
+// 四向差价列 = 策略保存的人工价（行情推送退役，差价手动填入）
+function manualOf(row, key) {
+  return row[key] == null ? null : row[key];
 }
 
 // 全列定宽 + tableLayout=fixed：差价/仓位内容变化（单帧尖刺、涨跌加粗）不再引起整表重排
@@ -89,33 +78,15 @@ function onRow(row) {
     onClick: () => {
       store.select(row.id);
       emit("select", row.id);
-      fillAll(row);
     },
     style: { cursor: "pointer", background: rowBg(row) },
   };
-}
-
-function fillAll(row) {
-  const keys = ["short_open", "short_cover", "long_open", "long_cover"];
-  const values = {};
-  for (const k of keys) {
-    const v = quoteOf(row, k);
-    if (v == null) return; // 任一差价缺失不填，避免半填误导
-    values[ACTION_BY_KEY[k]] = v;
-  }
-  store.fillRequest = { action: "all", seq: (store.fillRequest?.seq || 0) + 1, values };
 }
 
 function cancelCountOf(row) {
   return store.cancelCount(row.pair, `${row.leg_a}.SHFE`);
 }
 
-const ACTION_BY_KEY = {
-  short_open: "open_short",
-  short_cover: "close_short",
-  long_open: "open_long",
-  long_cover: "close_long",
-};
 </script>
 
 <template>
@@ -136,16 +107,16 @@ const ACTION_BY_KEY = {
     <template #bodyCell="{ column, record }">
       <template v-if="column.key === 'cancel_a'">{{ cancelCountOf(record) }}</template>
       <template v-else-if="column.key === 'short_open'">
-        <span :class="colorOf(record, 'short_open')">{{ fmt(quoteOf(record, "short_open")) }}</span>
+        <span>{{ fmt(manualOf(record, "manual_open_short")) }}</span>
       </template>
       <template v-else-if="column.key === 'short_cover'">
-        <span :class="colorOf(record, 'short_cover')">{{ fmt(quoteOf(record, "short_cover")) }}</span>
+        <span>{{ fmt(manualOf(record, "manual_close_short")) }}</span>
       </template>
       <template v-else-if="column.key === 'long_open'">
-        <span :class="colorOf(record, 'long_open')">{{ fmt(quoteOf(record, "long_open")) }}</span>
+        <span>{{ fmt(manualOf(record, "manual_open_long")) }}</span>
       </template>
       <template v-else-if="column.key === 'long_cover'">
-        <span :class="colorOf(record, 'long_cover')">{{ fmt(quoteOf(record, "long_cover")) }}</span>
+        <span>{{ fmt(manualOf(record, "manual_close_long")) }}</span>
       </template>
       <template v-else-if="column.key === 'a_short'">
         <span :class="{ 'pos-hold': posCell(record, 'a', 'short').hold }">{{ posCell(record, 'a', 'short').text }}</span>

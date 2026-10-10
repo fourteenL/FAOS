@@ -14,6 +14,15 @@ class TriggerAction(str, enum.Enum):
     close_long = "close_long"    # 多平：卖出价差对冲多头，触发条件 空开>=X
 
 
+class SpreadQuote(BaseModel):
+    """四向价差（本地由两腿 tick 合成；short_open≡long_cover、long_open≡short_cover）。"""
+
+    short_open: float
+    long_open: float
+    short_cover: float
+    long_cover: float
+
+
 class StrategyStatus(str, enum.Enum):
     unsubscribed = "unsubscribed"  # 未订阅
     pending = "pending"            # 等待行情
@@ -43,6 +52,11 @@ class Strategy(BaseModel):
     held_units: float = 0  # 已开价差份数（净）
     active_algos: list[str] = []
     executing_action: Optional[str] = None  # 执行中的动作（挂单→执行→成交全程方向可见；算法结束清除）
+    # 人工填入的策略价差（行情推送退役后差价来源=手动；下单时自动保存到对应字段）
+    manual_open_short: Optional[float] = None
+    manual_open_long: Optional[float] = None
+    manual_close_short: Optional[float] = None
+    manual_close_long: Optional[float] = None
     slip_a: int = 0  # A 腿（主动）滑点，跳（挂价排队默认不加滑点）
     slip_b: int = 100  # B 腿（被动）滑点，跳（对冲快速成交）
     order_type_a: str = "挂价"  # A 腿报单类型：挂价(排队)/对手价/最新价/市价

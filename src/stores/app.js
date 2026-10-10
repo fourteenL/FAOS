@@ -26,20 +26,16 @@ export function tickPrecision(tick) {
 export const useAppStore = defineStore("app", {
   state: () => ({
     strategies: [],
-    quotes: {},      // pair -> SpreadQuote
-    prevQuotes: {},  // pair -> 上一帧（用于涨跌方向）
     positions: {},   // vt_symbol -> { long: n, short: n }
     orders: [],      // 腿部委托回报（T12 用）
     trades: [],      // 腿部成交回报（T12 用）
     algos: [],       // 价差算法状态（T12 用）
     notices: [],
-    mqttState: "disconnected",
     ctpState: "disconnected",
     selectedId: null,
     products: [],
     productFilter: null,
     productTicks: {},
-    fillRequest: null,
     cancelledSet: {},  // vt_orderid 去重
     cancelByPair: {},  // pair -> { vt_symbol: 已撤笔数 }
     loggedIn: false,
@@ -70,7 +66,6 @@ export const useAppStore = defineStore("app", {
       // 先绑定事件再拉状态：连接成功事件不会因「后端先连上、前端后绑定」而丢失
       if (!this.bound) this.bindEvents();
       const status = await call("get_app_status");
-      this.mqttState = status.mqtt;
       this.ctpState = status.ctp;
       this.products = status.products || [];
       this.productTicks = status.product_ticks || {};
@@ -83,28 +78,12 @@ export const useAppStore = defineStore("app", {
         this.strategies = this.strategies.filter((x) => x.id !== p.id);
         if (this.selectedId === p.id) this.selectedId = null;
       });
-      listenPy("spread-batch", (p) => {
-        // 合并行情批量事件（200ms 一批）：一次合并全部最新帧，渲染频率与行情帧率解耦
-        for (const [pair, q] of Object.entries(p.quotes || {})) {
-          this.prevQuotes[pair] = this.quotes[pair] || null;
-          this.quotes[pair] = q;
-        }
-      });
-      listenPy("mq-status", (p) => {
-        this.mqStatus = p;
-      });
       listenPy("notice", (p) => {
         this.notices.push({ ...p, ts: Date.now() });
         if (this.notices.length > 50) this.notices.shift();
       });
       listenPy("conn-state", (p) => {
-        if (p.kind === "mqtt") {
-          this.mqttState = p.state;
-          if (p.state === "disconnected" || p.state.startsWith("error")) {
-            this.quotes = {};      // 断开即清空：不显示上次会话残留
-            this.prevQuotes = {};
-          }
-        } else if (p.kind === "ctp") this.ctpState = p.state;
+        if (p.kind === "ctp") this.ctpState = p.state;
       });
       listenPy("position", (p) => {
         const sym = p.vt_symbol;
@@ -156,10 +135,6 @@ export const useAppStore = defineStore("app", {
     cancelCount(pair, vtSymbol) {
       return (this.cancelByPair[pair] || {})[vtSymbol] || 0;
     },
-    fillAllQuotes(values) {
-      const seq = (this.fillRequest?.seq || 0) + 1;
-      this.fillRequest = { action: "all", seq, values };
-    },
     // -- 命令包装 ---------------------------------------------------------
     async createStrategy(body) {
       this.strategies = await call("create_strategy", body);
@@ -210,14 +185,6 @@ export const useAppStore = defineStore("app", {
     },
     async getLoginState() {
       return call("get_login_state", {});
-    },
-    async connectMqtt() {
-      await call("connect_mqtt", {});
-      this.mqttState = "connecting";
-    },
-    async disconnectMqtt() {
-      await call("disconnect_mqtt", {});
-      this.mqttState = "disconnected";
     },
     async connectCtp() {
       await call("connect_ctp", {});

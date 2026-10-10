@@ -20,13 +20,6 @@ from typing import Optional
 from pydantic import BaseModel
 
 
-class MqttSettings(BaseModel):
-    host: str = ""
-    port: int = 1889  # broker 实际端口（曾误置 1899）
-    user: str = ""
-    password: str = ""
-
-
 class CtpSettings(BaseModel):
     # 中文键 = vnpy_ctp 网关 default_setting 键名
     用户名: str = ""
@@ -65,7 +58,6 @@ PRODUCT_TICKS_DEFAULT = {
 
 
 class Settings(BaseModel):
-    mqtt: MqttSettings = MqttSettings()
     ctp: CtpSettings = CtpSettings()
     algo: AlgoSettings = AlgoSettings()
     log: LogSettings = LogSettings()
@@ -79,7 +71,6 @@ MASK = "******"  # 设置回显掩码；保存时等于该值表示「保持原�
 def masked_settings(s: Settings) -> Settings:
     """回显用副本：密码字段替换为掩码。"""
     m = s.model_copy(deep=True)
-    m.mqtt.password = MASK
     m.ctp.密码 = MASK
     return m
 
@@ -87,8 +78,6 @@ def masked_settings(s: Settings) -> Settings:
 def merge_masked_settings(incoming: Settings, current: Settings) -> Settings:
     """保存合并：掩码密码回落为当前值，其余以 incoming 为准。"""
     merged = incoming.model_copy(deep=True)
-    if merged.mqtt.password == MASK:
-        merged.mqtt.password = current.mqtt.password
     if merged.ctp.密码 == MASK:
         merged.ctp.密码 = current.ctp.密码
     return merged

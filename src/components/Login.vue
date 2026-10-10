@@ -10,8 +10,6 @@ const form = reactive({
   ctp_account: "",
   ctp_password: "",
   counter: "实盘",
-  mqtt_host: "",
-  mqtt_port: null,
   ctp_server: "simnow1",
   ctp_td: "",
   ctp_md: "",
@@ -48,8 +46,6 @@ onMounted(async () => {
     form.ctp_account = st.ctp_account || "";
     form.ctp_password = st.ctp_password || "";
     form.counter = st.counter || "实盘";
-    form.mqtt_host = st.mqtt_host || "";
-    form.mqtt_port = st.mqtt_port || null;
     form.ctp_server = st.ctp_td ? matchServer(st.ctp_td, st.ctp_md) : "simnow1";
     form.ctp_td = st.ctp_td || "";
     form.ctp_md = st.ctp_md || "";
@@ -60,7 +56,7 @@ onMounted(async () => {
   }
 });
 
-async function doLogin(offline) {
+async function doLogin() {
   if (!form.ctp_account.trim()) {
     message.warning("请输入 CTP 账号");
     return;
@@ -76,13 +72,10 @@ async function doLogin(offline) {
       ctp_account: form.ctp_account.trim(),
       ctp_password: form.ctp_password,
       counter: form.counter,
-      mqtt_host: form.mqtt_host.trim(),
-      mqtt_port: form.mqtt_port ? Number(form.mqtt_port) : undefined,
       ctp_td: srv.td,
       ctp_md: srv.md,
       broker: form.broker.trim(),
       remember: form.remember,
-      offline,
     });
     emit("logged-in");
   } catch (e) {
@@ -124,20 +117,11 @@ async function doLogin(offline) {
             <a-input v-model:value="form.ctp_md" placeholder="tcp://host:port" size="large" @pressEnter="doLogin(false)" />
           </a-form-item>
         </div>
-        <div class="row2">
-          <a-form-item label="行情服务器" class="half">
-            <a-input v-model:value="form.mqtt_host" placeholder="MQTT 地址" size="large" @pressEnter="doLogin(false)" />
-          </a-form-item>
-          <a-form-item label="端口" class="half">
-            <a-input-number v-model:value="form.mqtt_port" :min="1" :max="65535" placeholder="1889" style="width: 100%" size="large" @pressEnter="doLogin(false)" />
-          </a-form-item>
-        </div>
         <a-checkbox v-model:checked="form.remember">记住我（保存账号密码到本机）</a-checkbox>
         <div class="btns">
-          <a-button type="primary" size="large" class="btn" :loading="loading && !form.offline" @click="doLogin(false)">登 录</a-button>
-          <a-button size="large" class="btn" :loading="loading && form.offline" @click="doLogin(true)">离线登录（仅行情）</a-button>
+          <a-button type="primary" size="large" class="btn" :loading="loading" @click="doLogin()">登 录</a-button>
         </div>
-        <p class="hint">MQTT 账号自动使用 u + CTP 账号，密码同 CTP 密码。离线登录连接行情、不连接交易（非开盘时段使用）。</p>
+        <p class="hint">行情由本地 CTP 两腿合成，登录即连接交易与行情（SimNow 交易时段 8:30–16:30 / 夜盘）。</p>
       </a-form>
     </div>
   </div>

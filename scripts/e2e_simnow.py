@@ -1,4 +1,7 @@
-r"""SimNow 全链路无头验收：登录→策略→1手触发单→算法拆腿→补腿→平仓。
+r"""【已过时 2026-10-09】行情链路本地化（MQTT 退役、本地价差触发）后本脚本依赖的
+MqttFeedService 已删除；SimNow 冒烟请用 scripts/ctp_smoke.py，全链路验收待按新架构重写。
+
+原用途：SimNow 全链路无头验收：登录→策略→1手触发单→算法拆腿→补腿→平仓。
 
 镜像 main.py 装配（真实 MQTT + 真实 CTP + FaosTaker 算法），差异：
 - 策略库用临时文件（不碰 %APPDATA%\faos\strategies.json）

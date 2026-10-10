@@ -75,26 +75,20 @@ class LoginBody(BaseModel):
     ctp_account: str
     ctp_password: str
     counter: str = "实盘"  # SimNow 新前置要求生产证书（实盘）；「测试」会 4097 握手失败
-    mqtt_host: str = ""
-    mqtt_port: Optional[int] = None  # 空/非法不改配置
     ctp_td: str = ""  # 交易前置（空=不改配置）
     ctp_md: str = ""  # 行情前置（空=不改配置）
     broker: str = "9999"
     remember: bool = False
-    offline: bool = False
 
 
 class LoginResp(BaseModel):
     ok: bool = True
-    offline: bool = False
 
 
 class LoginStateResp(BaseModel):
     ctp_account: str = ""
     ctp_password: str = ""
     counter: str = "实盘"
-    mqtt_host: str = ""
-    mqtt_port: Optional[int] = None
     ctp_td: str = ""
     ctp_md: str = ""
     broker: str = "9999"
@@ -136,14 +130,13 @@ async def get_settings(body: Empty, state: Annotated[AppState, State()]) -> Sett
 
 
 class PasswordsResp(BaseModel):
-    mqtt: str = ""
     ctp: str = ""
 
 
 @commands.command()
 async def get_passwords(body: Empty, state: Annotated[AppState, State()]) -> PasswordsResp:
     """设置面板「显示密码」：返回明文（本机自用，用户明确要求可查看原文）。"""
-    return PasswordsResp(mqtt=state.settings.mqtt.password, ctp=state.settings.ctp.密码)
+    return PasswordsResp(ctp=state.settings.ctp.密码)
 
 
 @commands.command()
@@ -255,21 +248,20 @@ async def get_app_status(body: Empty, state: Annotated[AppState, State()]) -> Di
 
 @commands.command()
 async def login(body: LoginBody, state: Annotated[AppState, State()]) -> LoginResp:
-    """登录：派生 MQTT 凭据（u+CTP账号），连接 MQTT；offline=False 时同时连 CTP。"""
+    """登录：写 CTP 凭据并连接（行情链路已退役，无 MQTT）。"""
     apply_login(state.settings, body.ctp_account, body.ctp_password,
-                body.counter, body.mqtt_host, body.broker,
-                mqtt_port=body.mqtt_port, ctp_td=body.ctp_td, ctp_md=body.ctp_md)
+                body.counter, body.broker,
+                ctp_td=body.ctp_td, ctp_md=body.ctp_md)
     if body.remember:
         persist_settings(state.settings, settings_path())  # 记住我：凭据落盘
-    state.feed.start()  # 幂等
-    if not body.offline:
-        if state.ctp is None:
-            raise ValueError("CTP 服务初始化失败，请查看日志")
-        state.ctp.connect(state.settings.ctp)
-    state.pusher.notice("info", "离线登录：仅行情连接" if body.offline else "登录成功：行情与交易连接中")
-    return LoginResp(ok=True, offline=body.offline)
+    if state.ctp is None:
+        raise ValueError("CTP 服务初始化失败，请查看日志")
+    state.ctp.connect(state.settings.ctp)  # SimNow 仅交易时段可登录；状态经 py://conn-state 推送
+    state.pusher.notice("info", "登录中：正在连接 CTP（合约加载约 1~3 分钟，就绪会提醒）")
+    return LoginResp(ok=True)
 
 
+@commands.command()
 @commands.command()
 async def get_login_state(body: Empty, state: Annotated[AppState, State()]) -> LoginStateResp:
     """登录页预填：记住我的凭据（remembered 标记是否来自已保存配置）。"""
@@ -281,8 +273,6 @@ async def get_login_state(body: Empty, state: Annotated[AppState, State()]) -> L
         ctp_account=s.ctp.用户名,
         ctp_password=s.ctp.密码,
         counter=s.ctp.柜台环境,
-        mqtt_host=s.mqtt.host,
-        mqtt_port=s.mqtt.port,
         ctp_td=s.ctp.交易服务器,
         ctp_md=s.ctp.行情服务器,
         broker=s.ctp.经纪商代码,
@@ -299,19 +289,6 @@ async def set_strategy_config(body: SetConfigBody, state: Annotated[AppState, St
 @commands.command()
 async def stop_strategy_direction(body: StopDirectionBody, state: Annotated[AppState, State()]) -> Strategy:
     return _guard(state, lambda: state.manager.stop_direction(body.strategy_id, body.side))
-
-
-@commands.command()
-async def connect_mqtt(body: Empty, state: Annotated[AppState, State()]) -> Ok:
-    state.feed.start()  # 幂等；连接成功/失败经 py://conn-state 推送
-    return Ok()
-
-
-@commands.command()
-async def disconnect_mqtt(body: Empty, state: Annotated[AppState, State()]) -> Ok:
-    state.feed.stop()
-    state.pusher.conn_state("mqtt", "disconnected")
-    return Ok()
 
 
 @commands.command()

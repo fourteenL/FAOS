@@ -6,7 +6,6 @@ from pydantic import RootModel
 from pytauri import AppHandle, Emitter
 
 from faos_app.models import Strategy
-from faos_app.mqtt_feed import MqStatus, SpreadQuote
 
 
 class _Payload(RootModel[dict]):
@@ -30,19 +29,6 @@ class Pusher:
 
     def strategy_deleted(self, strategy_id: int) -> None:
         self._emit("strategy-deleted", {"id": strategy_id})
-
-    def spread(self, pair: str, q: SpreadQuote) -> None:
-        self._emit("spread", {"pair": pair, "quote": q.model_dump()})
-
-    def spread_batch(self, quotes: dict) -> None:
-        """合并行情批量推送（200ms 窗口最新帧，降低 IPC 事件量 ~97%）。"""
-        self._emit("spread-batch", {
-            "quotes": {pair: (q.model_dump() if hasattr(q, "model_dump") else q)
-                       for pair, q in quotes.items()}
-        })
-
-    def mq_status(self, s: MqStatus) -> None:
-        self._emit("mq-status", s.model_dump(mode="json"))
 
     def notice(self, level: str, msg: str) -> None:
         self._emit("notice", {"level": level, "msg": msg})

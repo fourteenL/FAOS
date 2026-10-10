@@ -40,29 +40,25 @@ const precision = computed(() => tickPrecision(tick.value));
 // 当前策略存活触发单的动作集合（有挂单的字段保持下单价格，直到该单停止/触发）
 const liveActions = computed(() => new Set((s.value?.triggers || []).map((t) => t.action)));
 
-// 点击行情行 → 填入点击那一刻的价格（一次性快照，不持续跟随）；
-// 已有挂单的字段不被覆盖（保持用户下单价格，直到该单停止）
+
+// 差价来源=人工：面板预填策略保存的价；下单时后端自动保存新价回策略
 watch(
-  () => store.fillRequest,
-  (req) => {
-    if (!req) return;
-    if (req.action === "all") {
-      const vs = req.values || {};
-      for (const k of ["open_short", "close_short", "open_long", "close_long"]) {
-        if (vs[k] != null && !liveActions.value.has(k)) {
-          form[k] = Number(Number(vs[k]).toFixed(precision.value));
-        }
-      }
+  () => [s.value?.id, s.value?.triggers.length, s.value?.manual_open_short, s.value?.manual_open_long,
+         s.value?.manual_close_short, s.value?.manual_close_long],
+  () => {
+    if (!s.value) {
       return;
     }
-  },
-  { immediate: true }
-);
-
-watch(
-  () => s.value?.id,
-  () => {
-    if (!s.value) return;
+    const trigOf = (a) => (s.value.triggers || []).find((t) => t.action === a);
+    for (const [field, manual, action] of [
+      ["open_short", "manual_open_short", "open_short"],
+      ["close_short", "manual_close_short", "close_short"],
+      ["open_long", "manual_open_long", "open_long"],
+      ["close_long", "manual_close_long", "close_long"],
+    ]) {
+      const t = trigOf(action);
+      form[field] = t ? t.spread : s.value[manual];  // 挂单字段显示挂单价，否则显示保存价
+    }
     refreshLegs();
   },
   { immediate: true }

@@ -1,14 +1,19 @@
-"""策略管理器：创建/订阅/删除/停止/触发单挂管 + MQTT 回执与行情驱动的状态迁移。"""
+"""策略管理器：创建/订阅/删除/停止/触发单挂管（行情订阅=本地 CTP 腿订阅，服务端行情链路已退役）。"""
 
 from datetime import datetime
 from typing import Callable, Optional
 from uuid import uuid4
 
-from faos_app.models import Strategy, StrategyStatus, Trigger, TriggerAction
-from faos_app.mqtt_feed import MqStatus, SpreadQuote
+from faos_app.models import SpreadQuote, Strategy, StrategyStatus, Trigger, TriggerAction
 from faos_app.store import StrategyStore
 
 _OPEN_ACTIONS = {TriggerAction.open_short, TriggerAction.open_long}
+_MANUAL_FIELD = {
+    TriggerAction.open_short: "manual_open_short",
+    TriggerAction.open_long: "manual_open_long",
+    TriggerAction.close_short: "manual_close_short",
+    TriggerAction.close_long: "manual_close_long",
+}
 
 
 def _now() -> str:
@@ -16,11 +21,13 @@ def _now() -> str:
 
 
 class StrategyManager:
-    def __init__(self, store: StrategyStore, feed, push):
+    def __init__(self, store: StrategyStore, push,
+                 legs_subscriber: Optional[Callable[[list], None]] = None,
+                 contracts_provider: Optional[Callable[[], list]] = None):
         self._store = store
-        self._feed = feed
         self._push = push
-        self._product_requests: dict[str, tuple[float, float, float]] = {}  # product -> (single, total, 过期时刻)
+        self._legs_subscriber = legs_subscriber or (lambda symbols: None)  # CTP 行情订阅两腿
+        self._contracts_provider = contracts_provider or (lambda: [])      # vnpy 合约列表（品种展开用）
         # 停止策略时的扩展点（T10 的 spread_service 注册撤算法钩子）
         self.on_stop_hooks: list[Callable[[Strategy], None]] = []
         # 方向级停止扩展点：hook(strategy, side)，side ∈ {"short","long"}
@@ -34,10 +41,6 @@ class StrategyManager:
     @property
     def push(self):
         return self._push
-
-    @property
-    def feed(self):
-        return self._feed
 
     # -- 创建 / 生命周期 ------------------------------------------------------
 
@@ -53,30 +56,44 @@ class StrategyManager:
             id=self._store.next_id(), leg_a=leg_a, leg_b=leg_b,
             single_lots=single_lots, total_lots=total_lots,
         )
+        s.status = StrategyStatus.active  # 本地创建即生效（无服务端回执）
         self._store.add(s)
-        # 创建即订阅（用户显式动作）；订阅状态见策略状态机
-        self._feed.subscribe_pairs([s.pair])
-        s.status = StrategyStatus.pending
-        self._store.update(s)
+        self._legs_subscriber([f"{leg_a}.SHFE", f"{leg_b}.SHFE"])  # CTP 订阅两腿行情
         self._push.strategy(s)
         return s
 
     def create_product(self, product: str, single_lots: float, total_lots: float) -> tuple[int, int]:
+        """品种展开：从 vnpy 合约列表取该品种全部在市合约，本地生成 C(n,2) 组合。"""
         product = product.strip()
         if not product.isalpha():
             raise ValueError("品种代码应为纯字母，如 ag")
-        # 品种条目直接发 tq/sub（服务端展开并推送该品种全部组合）；
-        # 已存在的行在下一笔回执时更新单份/总份（重复订阅不再"无反应"）
-        import time as _time
-
-        self._product_requests[product] = (single_lots, total_lots, _time.monotonic() + 30)
-        self._feed.subscribe_pairs([product])
+        symbols = [s.split(".")[0] for s in self._contracts_provider()
+                   if s.split(".")[1:2] == ["SHFE"]]
+        matched = sorted({s for s in symbols
+                          if "".join(ch for ch in s if ch.isalpha()) == product})
+        if not matched:
+            raise ValueError(f"vnpy 合约中未找到品种 {product}（需先连接 CTP 并完成合约加载）")
+        created, legs = 0, []
+        for i in range(len(matched)):
+            for j in range(i + 1, len(matched)):
+                pair = f"{matched[i]}&{matched[j]}"
+                if self._find_by_pair(pair) is not None:
+                    continue
+                s = Strategy(id=self._store.next_id(), leg_a=matched[i], leg_b=matched[j],
+                             product=product, single_lots=single_lots, total_lots=total_lots,
+                             status=StrategyStatus.active)
+                self._store.add(s)
+                self._push.strategy(s)
+                legs += [f"{matched[i]}.SHFE", f"{matched[j]}.SHFE"]
+                created += 1
+        if legs:
+            self._legs_subscriber(sorted(set(legs)))
         existing = sum(1 for s in self._store.list() if self._product_of(s.pair) == product)
-        return 0, existing
+        return created, existing
 
     def subscribe(self, strategy_id: int) -> Strategy:
         s = self._require(strategy_id)
-        self._feed.subscribe_pairs([s.pair])
+        self._legs_subscriber([f"{s.leg_a}.SHFE", f"{s.leg_b}.SHFE"])
         if s.status in (StrategyStatus.unsubscribed, StrategyStatus.stopped):
             s.status = StrategyStatus.pending
             self._store.update(s)
@@ -87,8 +104,8 @@ class StrategyManager:
         s = self._require(strategy_id)
         for hook in self.on_stop_hooks:  # 撤算法/触发单，避免孤儿腿
             hook(s)
-        self._feed.unsubscribe_pairs([s.pair])
         self._store.remove(strategy_id)
+        self._push.strategy_deleted(strategy_id)
         return self._store.list()
 
     def delete_product(self, product: str) -> list[Strategy]:
@@ -103,8 +120,6 @@ class StrategyManager:
                 hook(s)
             self._store.remove(s.id)
             self._push.strategy_deleted(s.id)
-        if matched:
-            self._feed.unsubscribe_pairs([s.pair for s in matched])
         return self._store.list()
 
     def stop(self, strategy_id: int) -> Strategy:
@@ -199,6 +214,7 @@ class StrategyManager:
             raise ValueError(
                 f"超出总份限制：已持仓 {abs(s.held_units)} 份 + 本次 {lots} 份 > 总份 {s.total_lots}"
             )
+        setattr(s, _MANUAL_FIELD[action], spread)  # 下单价保存进策略价差（行情退役后差价来源=人工）
         t = Trigger(trigger_id=f"t{uuid4().hex[:8]}", action=action, spread=spread, lots=lots)
         s.triggers.append(t)
         if s.status in (StrategyStatus.active, StrategyStatus.unsubscribed, StrategyStatus.pending):
@@ -269,76 +285,7 @@ class StrategyManager:
                     f"策略 #{s.id} 持仓校正为 {abs(held)} 份（{'空头价差' if held < 0 else '多头价差' if held > 0 else '无持仓'}）",
                 )
 
-    # -- MQTT 回执 / 行情驱动 ---------------------------------------------------
-
-    def on_mq_status(self, status: MqStatus) -> None:
-        import time as _time
-
-        for bad in status.invalid:
-            self._push.notice("warn", f"订阅条目无效: {bad}")
-
-        subscribed = set(status.subscribed)
-        pending = set(status.pending)
-
-        # 品种订阅参数只在有效期内应用：服务端每 ~5s 推一次 tq/status 快照，
-        # 粘滞缓存会把用户后来改的单份/总份反复打回订阅时的值（实测跳变根因）
-        now_ts = _time.monotonic()
-        for p in list(self._product_requests):
-            if self._product_requests[p][2] < now_ts:
-                self._product_requests.pop(p)
-
-        # 品种展开：subscribed 中出现尚无策略的 pair → 建策略；
-        # 已存在且其品种在本会话被重新订阅过 → 更新单份/总份（参数生效）
-        for pair in sorted(subscribed | pending):
-            if "&" not in pair:
-                continue
-            product = self._product_of(pair)
-            existing = self._find_by_pair(pair)
-            req = self._product_requests.get(product)
-            if existing is not None:
-                if req and (existing.single_lots, existing.total_lots) != req[:2]:
-                    existing.single_lots, existing.total_lots = req[0], req[1]
-                    self._store.update(existing)
-                    self._push.strategy(existing)
-                continue
-            use_lots = req[:2] if req else (1, 1)
-            leg_a, _, leg_b = pair.partition("&")
-            s = Strategy(id=self._store.next_id(), leg_a=leg_a, leg_b=leg_b,
-                         product=product or None, single_lots=use_lots[0], total_lots=use_lots[1],
-                         status=StrategyStatus.pending)
-            self._store.add(s)
-            self._push.strategy(s)
-
-        # 订阅列表与 MQTT 严格同步：服务端没有的一律删除（含 stopped/unsubscribed）
-        from datetime import datetime as _dt
-
-        now = _dt.now()
-        for s in list(self._store.list()):
-            if s.pair in subscribed or s.pair in pending:
-                continue
-            if s.status == StrategyStatus.pending:
-                # 刚创建的 pending 等待回执（防旧回执竞态误删）；超 15 秒无回执 = 订阅未生效
-                try:
-                    age = (now - _dt.fromisoformat(s.created_at)).total_seconds()
-                except Exception:
-                    age = 999
-                if age > 15:
-                    self._store.remove(s.id)
-                    self._push.strategy_deleted(s.id)
-                    self._push.notice("warn", f"策略 #{s.id} {s.pair} 订阅未生效，已移除")
-                continue
-            self._store.remove(s.id)
-            self._push.strategy_deleted(s.id)
-            self._push.notice("warn", f"策略 #{s.id} {s.pair} 订阅已失效，已移除")
-
-    def on_spread(self, pair: str, quote: SpreadQuote) -> None:
-        s = self._find_by_pair(pair)
-        if s is None:
-            return
-        if s.status == StrategyStatus.pending:
-            s.status = StrategyStatus.active
-            self._store.update(s)
-            self._push.strategy(s)
+    # -- 行情驱动 -------------------------------------------------------------
 
     # -- 内部 -----------------------------------------------------------------
 
