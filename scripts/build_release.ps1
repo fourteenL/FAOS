@@ -34,11 +34,21 @@ $distCfg = Join-Path $repo "config\settings.dist.json"
 if ($LASTEXITCODE -ne 0) { throw "生成发行配置失败" }
 
 # 2.6 清理打包冗余（NSIS 单线程逐文件解包，减文件数与换快解压是唯二杠杆）：
-#     a) PySide6（482MB/数千文件）——vnpy 拖入的 Qt 绑定，FAOS 用 Tauri 做 UI 完全不用
-#     b) __pycache__/.pyc——首次启动自动重建
-#     实测：47.3s → zlib 压缩 33.3s → 剔除 PySide6 22.4s；包体 193MB → 71.5MB
-Remove-Item -Recurse -Force (Join-Path $pyembed "Lib\site-packages\PySide6") -ErrorAction SilentlyContinue
-Get-ChildItem $pyembed -Directory -Filter "PySide6*" -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force
+#     a) PySide6 及 Qt 孤儿（pyqtgraph/qdarkstyle/qtpy/shiboken6）——vnpy 拖入，FAOS 用 Tauri
+#     b) FAOS 不用的 vnpy 依赖：plotly(K线图)/PIL/zmq/moocore/narwhals/deap/jsonschema/rpds/
+#        matplotlib/patsy/statsmodels/IPython/pip——真实 import 链验证 DEAD（talib/pandas/numpy 保留）
+#     c) __pycache__/.pyc——首次启动自动重建
+#     实测：47.3s → zlib 33.3s → 剔除 PySide6 22.4s；包体 193MB → 71.5MB（剔库后预计 ~55MB）
+# 注意：pip/setuptools/wheel 不删——下次构建的依赖安装还要用（清理在每次 pip install 之后执行）
+$deadPkgs = @("PySide6", "pyqtgraph", "qdarkstyle", "qtpy", "shiboken6", "plotly", "PIL",
+    "zmq", "pyzmq", "moocore", "narwhals", "deap", "jsonschema", "rpds", "matplotlib", "patsy",
+    "statsmodels", "IPython", "nbformat", "jupyter_core", "fastjsonschema", "_plotly_utils",
+    "jupyter", "_distutils_hack")
+foreach ($pkg in $deadPkgs) {
+    Remove-Item -Recurse -Force (Join-Path $pyembed "Lib\site-packages\$pkg") -ErrorAction SilentlyContinue
+}
+Get-ChildItem $pyembed -Directory | Where-Object { $n = $_.Name; ($deadPkgs | Where-Object { $n -like "$pkg*" }).Count -gt 0 } | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+Get-ChildItem (Join-Path $pyembed "Lib\site-packages") -Directory -Filter "*.dist-info" | Where-Object { $n = $_.Name; $base = ($n -split "-")[0]; ($deadPkgs -contains $base) } | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
 Get-ChildItem $pyembed -Recurse -Directory -Filter "__pycache__" -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force
 Get-ChildItem $pyembed -Recurse -Include "*.pyc", "*.pyo" -File -ErrorAction SilentlyContinue | Remove-Item -Force
 

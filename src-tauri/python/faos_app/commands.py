@@ -122,11 +122,6 @@ def _guard(state: AppState, fn):
 
 
 @commands.command()
-async def ping(body: Empty, state: Annotated[AppState, State()]) -> Ok:
-    return Ok()
-
-
-@commands.command()
 async def get_settings(body: Empty, state: Annotated[AppState, State()]) -> Settings:
     return masked_settings(state.settings)  # 密码回显掩码
 
