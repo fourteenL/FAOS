@@ -97,6 +97,7 @@ class LoginStateResp(BaseModel):
 
 class SetConfigBody(IdBody):
     slip_a: Optional[int] = None
+    max_cancels_a: Optional[int] = None  # A 腿撤单上限（风控）
     slip_b: Optional[int] = None
     order_type_a: Optional[str] = None
     order_type_b: Optional[str] = None
@@ -282,7 +283,8 @@ async def get_login_state(body: Empty, state: Annotated[AppState, State()]) -> L
 @commands.command()
 async def set_strategy_config(body: SetConfigBody, state: Annotated[AppState, State()]) -> Strategy:
     return _guard(state, lambda: state.manager.set_config(
-        body.strategy_id, body.slip_a, body.slip_b, body.order_type_a, body.order_type_b))
+        body.strategy_id, body.slip_a, body.slip_b, body.order_type_a, body.order_type_b,
+        max_cancels_a=body.max_cancels_a))
 
 
 @commands.command()

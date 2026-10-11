@@ -145,7 +145,8 @@ class StrategyManager:
         return s
 
     def set_config(self, strategy_id: int, slip_a=None,
-                   slip_b=None, order_type_a=None, order_type_b=None) -> Strategy:
+                   slip_b=None, order_type_a=None, order_type_b=None,
+                   max_cancels_a=None) -> Strategy:
         """策略交易参数：AB 腿各自的滑点与报单类型。"""
         s = self._require(strategy_id)
         if slip_a is not None:
@@ -161,6 +162,10 @@ class StrategyManager:
                 if val not in self.ORDER_TYPES:
                     raise ValueError(f"报单类型无效，应为 {'/'.join(self.ORDER_TYPES)}")
                 setattr(s, field, val)
+        if max_cancels_a is not None:
+            if max_cancels_a < 1:
+                raise ValueError("A 腿撤单上限必须为正数")
+            s.max_cancels_a = int(max_cancels_a)
         self._store.update(s)
         self._push.strategy(s)
         return s

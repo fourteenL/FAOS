@@ -9,6 +9,7 @@ from dataclasses import asdict
 from typing import Optional
 
 from vnpy.trader.constant import Direction, Status
+from vnpy.trader.event import EVENT_ORDER
 from vnpy_spreadtrading.base import EVENT_SPREAD_ALGO, AlgoItem, LegData, SpreadData
 
 from faos_app.models import Strategy, TriggerAction
@@ -52,12 +53,14 @@ class SpreadService:
         if event_engine is not None:
             self._install_algo_class()
             event_engine.register(EVENT_SPREAD_ALGO, self._wrap_algo_handler)
+            event_engine.register(EVENT_ORDER, self._wrap_algo_handler)
 
     def attach(self, engine, event_engine) -> None:
         """main.py 装配时注入真实 SpreadEngine（add_app 返回值）。"""
         self._engine = engine
         self._install_algo_class()
         event_engine.register(EVENT_SPREAD_ALGO, self._wrap_algo_handler)
+        event_engine.register(EVENT_ORDER, self._wrap_algo_handler)
 
     def _install_algo_class(self) -> None:
         """用 FAOS 定制算法（每腿滑点/报单类型）替换默认 SpreadTaker。"""
@@ -124,6 +127,10 @@ class SpreadService:
     # -- SpreadExecutor -------------------------------------------------------
 
     def execute(self, strategy: Strategy, trigger) -> Optional[str]:
+        if strategy.cancel_count_a >= strategy.max_cancels_a:
+            raise ValueError(
+                f"A 腿撤单已达上限 {strategy.max_cancels_a}（当前 {strategy.cancel_count_a}），"
+                "暂停下单，请检查行情/参数后在策略管理调整上限")
         if not self._ctp.is_ready():
             return None
         self.ensure_spread(strategy)
@@ -215,7 +222,33 @@ class SpreadService:
             out[pair] = f"追价中：{hops}成交 {it.traded_volume:.0f}/{it.volume:.0f}"
         return out
 
-    def _process_algo_event(self, item: AlgoItem) -> None:
+    def _process_algo_event(self, item) -> None:
+        if hasattr(item, "status") and hasattr(item, "vt_orderid") and not hasattr(item, "algoid"):
+            self._process_order_event(item)  # OrderData（EVENT_ORDER）
+            return
+        self._process_spread_algo(item)
+
+    def _process_order_event(self, order) -> None:
+        """A 腿撤单回报 → 策略风控计数（同单去重）。"""
+        from vnpy.trader.constant import Status as _Status
+
+        if order.status != _Status.CANCELLED:
+            return
+        for s in self._store.list() if self._store else []:
+            if vt_symbol_of(s.leg_a) != order.vt_symbol:
+                continue
+            if order.vt_orderid in s.cancelled_orderids:
+                return  # 同单重复回报只计一次
+            s.cancelled_orderids.append(order.vt_orderid)
+            s.cancel_count_a += 1
+            self._store.update(s)
+            self._push.strategy(s)
+            if s.cancel_count_a >= s.max_cancels_a:
+                self._push.notice("warn",
+                                  f"策略 #{s.id} A 腿撤单已达上限 {s.max_cancels_a}，后续下单将被拒绝")
+            return
+
+    def _process_spread_algo(self, item: AlgoItem) -> None:
         self._algo_latest[item.spread_name] = item  # 未完成算法的最新快照
         d = asdict(item)
         d["direction"] = getattr(item.direction, "value", str(item.direction))

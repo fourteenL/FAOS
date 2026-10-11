@@ -8,6 +8,7 @@ const s = computed(() => store.selected);
 
 const ORDER_TYPES = ["对手价", "挂价", "最新价", "市价"];
 const form = reactive({ slip_a: 0, slip_b: 100, order_type_a: "挂价", order_type_b: "对手价" });
+const risk = reactive({ max_cancels_a: 2000 });
 const lots = reactive({ single: 1, total: 10 });
 
 watch(
@@ -18,6 +19,7 @@ watch(
     form.slip_b = s.value.slip_b ?? 100;
     form.order_type_a = s.value.order_type_a ?? "挂价";
     form.order_type_b = s.value.order_type_b ?? "对手价";
+    risk.max_cancels_a = s.value.max_cancels_a ?? 2000;
     lots.single = s.value.single_lots ?? 1;
     lots.total = s.value.total_lots ?? 10;
   },
@@ -38,6 +40,7 @@ async function saveConfig() {
     await store.setConfig(s.value.id, {
       slip_a: form.slip_a, slip_b: form.slip_b,
       order_type_a: form.order_type_a, order_type_b: form.order_type_b,
+      max_cancels_a: risk.max_cancels_a,
     });
     message.success("参数已保存");
   } catch (e) {
@@ -98,9 +101,13 @@ async function removeStrategy() {
           <span>B腿滑点（跳）</span>
           <a-input-number v-model:value="form.slip_b" :min="0" size="small" style="width: 80px" />
         </div>
+        <div class="field">
+          <span>A腿撤单上限（超限拒下单）</span>
+          <a-input-number v-model:value="risk.max_cancels_a" :min="1" size="small" style="width: 90px" />
+        </div>
         <a-button size="small" type="primary" @click="saveConfig">保存参数</a-button>
       </div>
-      <p class="hint">A 腿默认挂价排队（滑点 0）；B 腿默认对手价 + 100 跳滑点对冲。市价以「对手价 + 滑点」限价实现。</p>
+      <p class="hint">A 腿默认挂价排队（滑点 0）；B 腿默认对手价 + 100 跳滑点对冲。市价以「对手价 + 滑点」限价实现。风控：A 腿累计撤单 {{ s.cancel_count_a }} / 上限 {{ risk.max_cancels_a }}，超限拒挂新单。</p>
 
       <a-divider orientation="left" plain class="div">下单份数</a-divider>
       <div class="grid">
