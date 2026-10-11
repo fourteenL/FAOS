@@ -74,25 +74,12 @@ const openTriggerOf = (action) => s.value?.triggers.find((t) => t.action === act
 
 const OPEN_INPUT = { open_short: "open_short", open_long: "open_long" };
 
-// 开/平价格倒挂拦截（输入框保留，校验照旧）：做空开>平、做多开<平
-function inverted(action, spread) {
-  const open = spread;
-  const close = action === "open_short" ? form.close_short : form.close_long;
-  return open != null && close != null &&
-    (action === "open_short" ? open <= close : open >= close);
-}
-
+// 平仓=反向启动（空平/多平按钮已移除），开/平两框不再有比较对象——不做倒挂校验：
+// 用户自定触发价（如填高价尽快触发平仓）是合法意图
 async function doPlace(action, spread) {
-  if (inverted(action, spread)) {
-    const zone = action === "open_short" ? "做空" : "做多";
-    const cmp = action === "open_short" ? ">" : "<";
-    const close = action === "open_short" ? form.close_short : form.close_long;
-    message.warning(`${zone}开仓差价必须${cmp}平仓差价（当前 开 ${spread} / 平 ${close}，倒挂不执行）`);
-    return;
-  }
   try {
     await store.placeTrigger(s.value.id, { action, spread, lots: s.value.single_lots });
-    message.success("触发单已挂出，等待行情触发");
+    message.success("触发单已挂出（本地监控，等差价触发后拆腿下单）");
   } catch (e) {
     message.error(String(e));
   }
@@ -167,7 +154,7 @@ function fmt(v) {
         <div class="line">
           <label>空平差价</label>
           <a-input-number v-model:value="form.close_short" :step="step" :precision="precision" size="small" style="width: 90px" />
-          <span class="hint">平仓用「做多·启动」反向平出</span>
+          <span class="hint">平空仓：在上方「多开差价」填触发价后点「做多·启动」（价越宽松触发越快）</span>
         </div>
       </div>
       <div class="zone">
@@ -182,7 +169,7 @@ function fmt(v) {
         <div class="line">
           <label>多平差价</label>
           <a-input-number v-model:value="form.close_long" :step="step" :precision="precision" size="small" style="width: 90px" />
-          <span class="hint">平仓用「做空·启动」反向平出</span>
+          <span class="hint">平多仓：在上方「空开差价」填触发价后点「做空·启动」（价越宽松触发越快）</span>
         </div>
       </div>
     </div>
