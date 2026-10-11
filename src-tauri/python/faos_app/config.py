@@ -20,6 +20,27 @@ from typing import Optional
 from pydantic import BaseModel
 
 
+class CtpEnvironment(BaseModel):
+    """柜台环境预设（登录页动态下拉；用户可增删）。"""
+
+    name: str
+    mode: str = "实盘"  # "实盘" | "测试"（vnpy_ctp 柜台环境，生产/测试证书）
+    td: str = ""  # 交易前置
+    md: str = ""  # 行情前置
+
+
+DEFAULT_CTP_ENVIRONMENTS = [
+    CtpEnvironment(name="SimNow 第一组", mode="实盘",
+                   td="tcp://182.254.243.31:30001", md="tcp://182.254.243.31:30011"),
+    CtpEnvironment(name="SimNow 第二组", mode="实盘",
+                   td="tcp://182.254.243.31:30002", md="tcp://182.254.243.31:30012"),
+    CtpEnvironment(name="SimNow 第三组", mode="实盘",
+                   td="tcp://182.254.243.31:30003", md="tcp://182.254.243.31:30013"),
+    CtpEnvironment(name="SimNow 7×24", mode="实盘",
+                   td="tcp://182.254.243.31:40001", md="tcp://182.254.243.31:40011"),
+]
+
+
 class CtpSettings(BaseModel):
     # 中文键 = vnpy_ctp 网关 default_setting 键名
     用户名: str = ""
@@ -63,6 +84,7 @@ class Settings(BaseModel):
     log: LogSettings = LogSettings()
     products: list[str] = SHFE_PRODUCTS_DEFAULT  # 表格上方品种筛选列表，配置文件可增删
     product_dominant: dict[str, str] = {}  # 品种主力合约配置覆盖（如 {"ag": "2612"}；缺省=最近未来月自动推断）
+    ctp_environments: list[CtpEnvironment] = DEFAULT_CTP_ENVIRONMENTS  # 柜台环境列表（登录页可增删）
     product_ticks: dict[str, float] = PRODUCT_TICKS_DEFAULT  # 品种 -> 最小变动价位
 
 

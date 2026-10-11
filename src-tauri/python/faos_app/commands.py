@@ -88,11 +88,12 @@ class LoginResp(BaseModel):
 class LoginStateResp(BaseModel):
     ctp_account: str = ""
     ctp_password: str = ""
-    counter: str = "实盘"
+    counter: str = ""
     ctp_td: str = ""
     ctp_md: str = ""
     broker: str = "9999"
     remembered: bool = False
+    environments: list = []
 
 
 class SetConfigBody(IdBody):
@@ -130,8 +131,59 @@ async def get_settings(body: Empty, state: Annotated[AppState, State()]) -> Sett
     return masked_settings(state.settings)  # 密码回显掩码
 
 
+class ListEnvResp(BaseModel):
+    class EnvItem(BaseModel):
+        name: str
+        mode: str
+        td: str
+        md: str
+
+    environments: list["ListEnvResp.EnvItem"] = []
+
+
 class PasswordsResp(BaseModel):
     ctp: str = ""
+
+
+class EnvBody(BaseModel):
+    name: str
+    mode: str = "实盘"
+    td: str = ""
+    md: str = ""
+
+
+class EnvNameBody(BaseModel):
+    name: str
+
+
+@commands.command()
+async def add_environment(body: EnvBody, state: Annotated[AppState, State()]) -> ListEnvResp:
+    """添加柜台环境（同名覆盖更新）。"""
+    name = body.name.strip()
+    if not name:
+        raise ValueError("环境名称不能为空")
+    if body.mode not in ("实盘", "测试"):
+        raise ValueError("柜台模式应为 实盘/测试")
+    envs = [e for e in state.settings.ctp_environments if e.name != name]
+    from faos_app.config import CtpEnvironment
+
+    envs.append(CtpEnvironment(name=name, mode=body.mode, td=body.td.strip(), md=body.md.strip()))
+    state.settings.ctp_environments = envs
+    persist_settings(state.settings, settings_path())  # 环境列表落盘
+    return ListEnvResp(environments=[e.model_dump() for e in envs])
+
+
+@commands.command()
+async def remove_environment(body: EnvNameBody, state: Annotated[AppState, State()]) -> ListEnvResp:
+    """删除柜台环境（至少保留一个）。"""
+    envs = [e for e in state.settings.ctp_environments if e.name != body.name.strip()]
+    if len(envs) == len(state.settings.ctp_environments):
+        raise ValueError(f"环境不存在: {body.name}")
+    if not envs:
+        raise ValueError("至少保留一个柜台环境")
+    state.settings.ctp_environments = envs
+    persist_settings(state.settings, settings_path())
+    return ListEnvResp(environments=[e.model_dump() for e in envs])
 
 
 @commands.command()
@@ -272,11 +324,13 @@ async def get_login_state(body: Empty, state: Annotated[AppState, State()]) -> L
     return LoginStateResp(
         ctp_account=s.ctp.用户名,
         ctp_password=s.ctp.密码,
-        counter=s.ctp.柜台环境,
+        counter=next((e.name for e in s.ctp_environments if e.mode == s.ctp.柜台环境
+                      and e.td == s.ctp.交易服务器), s.ctp_environments[0].name),
         ctp_td=s.ctp.交易服务器,
         ctp_md=s.ctp.行情服务器,
         broker=s.ctp.经纪商代码,
         remembered=remembered,
+        environments=[e.model_dump() for e in s.ctp_environments],
     )
 
 
