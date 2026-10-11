@@ -154,7 +154,6 @@ function fmt(v) {
         <div class="line">
           <label>空平差价</label>
           <a-input-number v-model:value="form.close_short" :step="step" :precision="precision" size="small" style="width: 90px" />
-          <span class="hint">平空仓：在上方「多开差价」填触发价后点「做多·启动」（价越宽松触发越快）</span>
         </div>
       </div>
       <div class="zone">
@@ -169,7 +168,6 @@ function fmt(v) {
         <div class="line">
           <label>多平差价</label>
           <a-input-number v-model:value="form.close_long" :step="step" :precision="precision" size="small" style="width: 90px" />
-          <span class="hint">平多仓：在上方「空开差价」填触发价后点「做空·启动」（价越宽松触发越快）</span>
         </div>
       </div>
     </div>
