@@ -75,8 +75,25 @@ def _grouped_symbols(data: dict, product: str) -> tuple[list, str]:
     return contracts, dominant
 
 
-def save_seed(symbols: list) -> None:
-    """覆盖写种子：OMS 合约列表 → 按品种分组 + 主力推断。
+def _dominant_for_refresh(product: str, contracts: list, old_dominant: str,
+                          oi_map: dict) -> str:
+    """刷新时主力裁决：市场持仓量实测 > 旧种子显式值（仍在挂牌中）> 日期推断。
+
+    此前纯日期推断会把已对齐的市场主力（如 2612）在每次 CTP 刷新时打回 2611。
+    """
+    bare = [c.split(".")[0] for c in contracts]
+    oi_ranked = sorted(((v, c) for c, v in (oi_map or {}).items() if v and v > 0),
+                       reverse=True)
+    for _, vt in oi_ranked:
+        if vt in contracts:
+            return vt.split(".")[0]
+    if old_dominant in bare:
+        return old_dominant
+    return dominant_of(bare, product)
+
+
+def save_seed(symbols: list, oi_map: dict = None) -> None:
+    """覆盖写种子：OMS 合约列表 → 按品种分组（期权剔除），主力按刷新裁决。
 
     只保留纯期货（品种字母+3~4位月份，如 ag2612）；期权（ag2611C10100）剔除——
     真实 vnpy 合约查询会带回全部 SHFE 期权，混入会污染品种分组。
@@ -94,13 +111,32 @@ def save_seed(symbols: list) -> None:
     products = {}
     for product, vts in sorted(groups.items()):
         contracts = sorted(vts)
+        old_dom = str(((old.get("products") or {}).get(product) or {}).get("dominant") or "")
         products[product] = {
             "contracts": contracts,
-            "dominant": dominant_of([c.split(".")[0] for c in contracts], product),
+            "dominant": _dominant_for_refresh(product, contracts, old_dom, oi_map),
         }
+    # 旧种子有、本次合约列表没有的品种组保留（不因单次查询缺失而丢用户数据）
+    for product, entry in ((old.get("products") or {}).items()):
+        if product not in products:
+            products[product] = entry
     data = {"updated_at": date.today().isoformat(), "products": products}
     p = seed_path()
     p.parent.mkdir(parents=True, exist_ok=True)
+    tmp = p.with_suffix(".tmp")
+    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
+    tmp.replace(p)
+
+
+def update_seed_dominant(product: str, dominant: str) -> None:
+    """市场实测主力回写种子单品种（品种订阅时持久化；无效值忽略）。"""
+    product = product.strip().lower()
+    data = load_seed()
+    entry = (data.get("products") or {}).get(product)
+    if not entry or dominant not in [c.split(".")[0] for c in entry.get("contracts", [])]:
+        return
+    entry["dominant"] = dominant
+    p = seed_path()
     tmp = p.with_suffix(".tmp")
     tmp.write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
     tmp.replace(p)

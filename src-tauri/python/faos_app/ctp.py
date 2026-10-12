@@ -292,7 +292,7 @@ class CtpService:
         if symbols:
             from faos_app.contract_seed import save_seed
 
-            save_seed(symbols)
+            save_seed(symbols, oi_map=self.get_open_interest())
         return len(symbols)
 
     def get_positions(self) -> list:

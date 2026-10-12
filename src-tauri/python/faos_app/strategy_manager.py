@@ -110,7 +110,17 @@ class StrategyManager:
 
     def set_dominant_hint(self, product: str, oi_map: dict) -> None:
         """市场持仓量提示（品种订阅前实测；create_product 时优先于日期推断）。"""
-        self._dominant_hints[product.strip().lower()] = dict(oi_map or {})
+        product = product.strip().lower()
+        self._dominant_hints[product] = dict(oi_map or {})
+        try:  # 市场主力回写种子（离线兜底与下次刷新都用市场实测值）
+            from faos_app.contract_seed import update_seed_dominant
+
+            ranked = sorted(((v, c) for c, v in self._dominant_hints[product].items() if v > 0),
+                            reverse=True)
+            if ranked:
+                update_seed_dominant(product, ranked[0][1].split(".")[0])
+        except Exception:
+            pass
 
     def _dominant_hint_of(self, product: str, matched: list) -> Optional[str]:
         hint = self._dominant_hints.get(product.strip().lower())
