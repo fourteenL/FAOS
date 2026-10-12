@@ -346,7 +346,13 @@ class StrategyManager:
 
     def recover(self) -> None:
         """启动恢复：清除运行中算法状态；触发单保留并重挂（armed）；
-        旧默认交易参数（5/5/对手价/对手价）归一为新默认（A挂价+0 / B对手价+100）。"""
+        旧默认交易参数（5/5/对手价/对手价）归一为新默认（A挂价+0 / B对手价+100）；
+        重订全部策略两腿行情（本地价差架构订阅是会话态，不重订则触发永不评估——
+        2026-10-12 实证：重启后连主力月都『无报价』）。"""
+        all_legs = sorted({f"{s.leg_a}.SHFE" for s in self._store.list()}
+                          | {f"{s.leg_b}.SHFE" for s in self._store.list()})
+        if all_legs:
+            self._legs_subscriber(all_legs)  # 网关缓冲到登录后生效
         for s in self._store.list():
             changed = False
             if (s.slip_a, s.slip_b, s.order_type_a, s.order_type_b) == (5, 5, "对手价", "对手价"):
