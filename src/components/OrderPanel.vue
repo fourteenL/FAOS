@@ -41,7 +41,13 @@ const precision = computed(() => tickPrecision(tick.value));
 const liveActions = computed(() => new Set((s.value?.triggers || []).map((t) => t.action)));
 
 
-// 差价来源=人工：面板预填策略保存的价；下单时后端自动保存新价回策略
+// 差价来源=人工：面板预填策略保存的价；下单时后端自动保存新价回策略。
+// 脏字段保护：用户改过的输入不被策略事件重置——追价期每次 A 腿撤单都推策略更新
+// （撤单计数变化），旧实现会把你正在输入的价格打回旧保存值（表现为"下单后价格变/负价变正"）
+const dirty = new Set();
+const markDirty = (field) => dirty.add(field);
+let lastId = null;
+
 watch(
   () => [s.value?.id, s.value?.triggers.length, s.value?.manual_open_short, s.value?.manual_open_long,
          s.value?.manual_close_short, s.value?.manual_close_long],
@@ -49,6 +55,10 @@ watch(
     if (!s.value) {
       return;
     }
+    if (dirty.size && s.value?.id !== lastId) {
+      dirty.clear();  // 切换策略：恢复预填
+    }
+    lastId = s.value?.id;
     const trigOf = (a) => (s.value.triggers || []).find((t) => t.action === a);
     for (const [field, manual, action] of [
       ["open_short", "manual_open_short", "open_short"],
@@ -56,6 +66,9 @@ watch(
       ["open_long", "manual_open_long", "open_long"],
       ["close_long", "manual_close_long", "close_long"],
     ]) {
+      if (dirty.has(field)) {
+        continue;  // 用户输入保住
+      }
       const t = trigOf(action);
       form[field] = t ? t.spread : s.value[manual];  // 挂单字段显示挂单价，否则显示保存价
     }
@@ -79,6 +92,7 @@ const OPEN_INPUT = { open_short: "open_short", open_long: "open_long" };
 async function doPlace(action, spread) {
   try {
     await store.placeTrigger(s.value.id, { action, spread, lots: s.value.single_lots });
+    dirty.delete(action);  // 下单确认：该字段恢复跟随（显示挂单价）
     message.success("触发单已挂出（本地监控，等差价触发后拆腿下单）");
   } catch (e) {
     message.error(String(e));
@@ -146,28 +160,28 @@ function fmt(v) {
         <div class="zone-title short">做空（卖A买B）</div>
         <div class="line">
           <label>空开差价</label>
-          <a-input-number v-model:value="form.open_short" :step="step" :precision="precision" size="small" style="width: 90px" />
+          <a-input-number v-model:value="form.open_short" :step="step" :precision="precision" size="small" style="width: 90px" @change="markDirty('open_short')" />
           <a-button size="small" type="primary" danger @click="start('open_short')">启动</a-button>
           <a-button size="small" @click="modify('open_short')">修改</a-button>
           <a-button size="small" :disabled="stopDisabled" @click="stopCurrent">停止</a-button>
         </div>
         <div class="line">
           <label>空平差价</label>
-          <a-input-number v-model:value="form.close_short" :step="step" :precision="precision" size="small" style="width: 90px" />
+          <a-input-number v-model:value="form.close_short" :step="step" :precision="precision" size="small" style="width: 90px" @change="markDirty('close_short')" />
         </div>
       </div>
       <div class="zone">
         <div class="zone-title long">做多（买A卖B）</div>
         <div class="line">
           <label>多开差价</label>
-          <a-input-number v-model:value="form.open_long" :step="step" :precision="precision" size="small" style="width: 90px" />
+          <a-input-number v-model:value="form.open_long" :step="step" :precision="precision" size="small" style="width: 90px" @change="markDirty('open_long')" />
           <a-button size="small" type="primary" @click="start('open_long')">启动</a-button>
           <a-button size="small" @click="modify('open_long')">修改</a-button>
           <a-button size="small" :disabled="stopDisabled" @click="stopCurrent">停止</a-button>
         </div>
         <div class="line">
           <label>多平差价</label>
-          <a-input-number v-model:value="form.close_long" :step="step" :precision="precision" size="small" style="width: 90px" />
+          <a-input-number v-model:value="form.close_long" :step="step" :precision="precision" size="small" style="width: 90px" @change="markDirty('close_long')" />
         </div>
       </div>
     </div>
