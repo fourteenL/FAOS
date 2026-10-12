@@ -41,6 +41,12 @@ _MANUAL_FIELD = {
     TriggerAction.close_short: "manual_close_short",
     TriggerAction.close_long: "manual_close_long",
 }
+_CLOSE_COMPANION = {
+    TriggerAction.open_short: "manual_close_short",
+    TriggerAction.open_long: "manual_close_long",
+    TriggerAction.close_short: "manual_open_short",
+    TriggerAction.close_long: "manual_open_long",
+}
 
 
 def _now() -> str:
@@ -291,7 +297,8 @@ class StrategyManager:
     # -- 触发单 ---------------------------------------------------------------
 
     def place_trigger(self, strategy_id: int, action: TriggerAction, spread: float,
-                      lots: Optional[float] = None) -> Trigger:
+                      lots: Optional[float] = None,
+                      companion_spread: Optional[float] = None) -> Trigger:
         s = self._require(strategy_id)
         if s.status == StrategyStatus.stopped:
             raise ValueError("策略已停止，无法挂触发单")
@@ -313,6 +320,8 @@ class StrategyManager:
                 f"超出总份限制：已持仓 {abs(s.held_units)} 份 + 本次 {lots} 份 > 总份 {s.total_lots}"
             )
         setattr(s, _MANUAL_FIELD[action], spread)  # 下单价保存进策略价差（行情退役后差价来源=人工）
+        if companion_spread is not None:  # 开仓下单时对应平仓价一并保存（用户定稿）
+            setattr(s, _CLOSE_COMPANION[action], companion_spread)
         from faos_app.log import log
 
         log(f"FAOS_TRIGGER_PLACED #{s.id} {s.pair} {action.value}@{spread} lots={lots}")

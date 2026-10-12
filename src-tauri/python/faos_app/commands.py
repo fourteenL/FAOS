@@ -61,6 +61,7 @@ class PlaceTriggerBody(IdBody):
     action: str
     spread: float
     lots: Optional[float] = None
+    companion_spread: Optional[float] = None  # 开仓下单时对应的平仓价一并保存
 
 
 class CancelTriggerBody(IdBody):
@@ -294,7 +295,8 @@ async def place_trigger(body: PlaceTriggerBody, state: Annotated[AppState, State
             action = TriggerAction(body.action)
         except ValueError:
             raise ValueError(f"未知触发动作: {body.action}")
-        return state.manager.place_trigger(body.strategy_id, action, body.spread, body.lots)
+        return state.manager.place_trigger(body.strategy_id, action, body.spread, body.lots,
+                                            companion_spread=body.companion_spread)
 
     return _guard(state, run)
 

@@ -1,9 +1,12 @@
 <script setup>
-import { computed, ref, watch } from "vue";
+import { computed, onUnmounted, ref, watch } from "vue";
 import { useAppStore } from "../stores/app.js";
+import { marketClock } from "../utils/market_open.js";
 
 const emit = defineEmits(["select"]);
 const store = useAppStore();
+const market = marketClock();  // 交易时段指示：开盘策略号绿/休市红（每 30 秒刷新）
+onUnmounted(market.stop);
 
 // 方向标签：持仓 ∨ 已挂开仓单 ∨ 执行中（挂单→执行→成交全程方向可见——用户定稿）
 function directionOf(row) {
@@ -106,6 +109,9 @@ function cancelCountOf(row) {
     </template>
     <template #bodyCell="{ column, record }">
       <template v-if="column.key === 'cancel_a'">{{ cancelCountOf(record) }}</template>
+      <template v-else-if="column.key === 'id'">
+        <span :class="market.value ? 'mkt-open' : 'mkt-closed'">#{{ record.id }}</span>
+      </template>
       <template v-else-if="column.key === 'short_open'">
         <span>{{ fmt(manualOf(record, "manual_open_short")) }}</span>
       </template>
@@ -143,5 +149,7 @@ function cancelCountOf(row) {
 .dir-free { color: #389e0d; font-weight: 600; }
 .dir-active { color: #cf1322; font-weight: 600; }
 .pos-hold { color: #cf1322; font-weight: 600; }  /* 仓位非零标红 */
+.mkt-open { color: #389e0d; font-weight: 600; }   /* 交易时段：策略号绿 */
+.mkt-closed { color: #cf1322; font-weight: 600; } /* 休市：策略号红 */
 :deep(td) { font-variant-numeric: tabular-nums; }  /* 等宽数字：位数变化不改变单元格宽度 */
 </style>

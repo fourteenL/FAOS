@@ -90,8 +90,13 @@ const OPEN_INPUT = { open_short: "open_short", open_long: "open_long" };
 // 平仓=反向启动（空平/多平按钮已移除），开/平两框不再有比较对象——不做倒挂校验：
 // 用户自定触发价（如填高价尽快触发平仓）是合法意图
 async function doPlace(action, spread) {
+  const companion = action === "open_short" ? form.close_short
+    : action === "open_long" ? form.close_long : null;  // 开仓时对应平仓价一并保存
   try {
-    await store.placeTrigger(s.value.id, { action, spread, lots: s.value.single_lots });
+    await store.placeTrigger(s.value.id, {
+      action, spread, lots: s.value.single_lots,
+      companion_spread: companion ?? undefined,
+    });
     dirty.delete(action);  // 下单确认：该字段恢复跟随（显示挂单价）
     message.success("触发单已挂出（本地监控，等差价触发后拆腿下单）");
   } catch (e) {

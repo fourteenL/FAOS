@@ -1,10 +1,13 @@
 <script setup>
-import { computed, reactive, ref, watch } from "vue";
+import { computed, onUnmounted, reactive, ref, watch } from "vue";
 import { message } from "ant-design-vue";
 import { useAppStore } from "../stores/app.js";
+import { marketClock } from "../utils/market_open.js";
 
 const store = useAppStore();
 const s = computed(() => store.selected);
+const market = marketClock();
+onUnmounted(market.stop);
 
 const ORDER_TYPES = ["对手价", "挂价", "最新价", "市价"];
 const form = reactive({ slip_a: 0, slip_b: 100, order_type_a: "挂价", order_type_b: "对手价" });
@@ -71,7 +74,7 @@ async function removeStrategy() {
   <div class="admin">
     <template v-if="s">
       <div class="head">
-        <span class="sid">策略号 #{{ s.id }}</span>
+        <span class="sid" :class="market.value ? 'mkt-open' : 'mkt-closed'">策略号 #{{ s.id }}</span>
         <span class="pair">{{ s.pair }}</span>
         <span class="muted">净持仓 {{ Math.abs(s.held_units) }} 份（{{ s.held_units < 0 ? "空头价差" : s.held_units > 0 ? "多头价差" : "无" }}）</span>
       </div>
@@ -131,6 +134,8 @@ async function removeStrategy() {
 .admin { padding: 8px; }
 .head { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
 .sid { font-weight: 700; font-size: 15px; }
+.mkt-open { color: #389e0d; }
+.mkt-closed { color: #cf1322; }
 .pair { font-family: monospace; }
 .muted { color: #999; font-size: 12px; }
 .row2 { display: flex; gap: 8px; margin: 10px 0 4px; }
