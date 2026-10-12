@@ -152,4 +152,8 @@ function cancelCountOf(row) {
 .mkt-open { color: #389e0d; font-weight: 600; }   /* 交易时段：策略号绿 */
 .mkt-closed { color: #cf1322; font-weight: 600; } /* 休市：策略号红 */
 :deep(td) { font-variant-numeric: tabular-nums; }  /* 等宽数字：位数变化不改变单元格宽度 */
+:deep(.ant-table-thead > tr > th) {                  /* 表头吸顶：滚动时列头固定 */
+  position: sticky; top: 0; z-index: 2;
+  background: #fafafa; box-shadow: 0 1px 0 #f0f0f0;
+}
 </style>

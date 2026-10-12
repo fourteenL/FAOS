@@ -227,6 +227,14 @@ class StrategyManager:
         self._push.strategy(s)
         return s
 
+    def resubscribe_all(self) -> int:
+        """重订全部策略两腿行情（登录成功/on_ready 兜底——会话态订阅防丢）。"""
+        all_legs = sorted({f"{s.leg_a}.SHFE" for s in self._store.list()}
+                          | {f"{s.leg_b}.SHFE" for s in self._store.list()})
+        if all_legs:
+            self._legs_subscriber(all_legs)
+        return len(all_legs)
+
     def stop_all(self) -> list[Strategy]:
         """一键停止全部策略（撤触发单+停算法，持仓保留，策略保持在线）。"""
         for s in list(self._store.list()):

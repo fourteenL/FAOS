@@ -87,13 +87,15 @@ def _build_services(settings: Settings, portal, pusher: Pusher) -> AppState:
 
 
 def _on_ctp_ready(manager, ctp) -> None:
-    """CTP 就绪（合约加载完成）：刷新合约种子文件 + 持仓校正。"""
+    """CTP 就绪（合约加载完成）：刷新合约种子 + 重订行情（兜底）+ 持仓校正。"""
     try:
         n = ctp.refresh_contract_seed()
         if n:
             log(f"FAOS_CONTRACT_SEED_REFRESHED {n}")
     except Exception as e:
         log(f"FAOS_CONTRACT_SEED_FAIL {e}")
+    n = manager.resubscribe_all()
+    log(f"FAOS_LEGS_RESUBSCRIBED {n}")
     manager.reconcile_holdings(ctp)
 
 

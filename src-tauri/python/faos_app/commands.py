@@ -337,7 +337,8 @@ async def login(body: LoginBody, state: Annotated[AppState, State()]) -> LoginRe
     if state.ctp is None:
         raise ValueError("CTP 服务初始化失败，请查看日志")
     state.ctp.connect(state.settings.ctp)  # SimNow 仅交易时段可登录；状态经 py://conn-state 推送
-    state.pusher.notice("info", "登录中：正在连接 CTP（合约加载约 1~3 分钟，就绪会提醒）")
+    n = state.manager.resubscribe_all()  # 登录即重订行情（网关缓冲随登录生效）
+    state.pusher.notice("info", f"登录中：正在连接 CTP（合约加载约 1~3 分钟，就绪会提醒）；已重订 {n} 个合约行情")
     return LoginResp(ok=True)
 
 
