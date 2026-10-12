@@ -31,6 +31,14 @@ function openTriggerList() {
   triggerList.value?.open();
 }
 
+async function doStopAll() {
+  try {
+    await store.stopAll();
+  } catch (e) {
+    /* 结果经通知推送 */
+  }
+}
+
 onMounted(async () => {
   try {
     await store.init(); // 状态/事件绑定先行（登录页也需要连接状态）
@@ -72,6 +80,9 @@ watchNotices();
     <a-layout-header style="height: auto; padding: 0; background: #fff; color: #333">
       <StatusBanner>
         <template #actions>
+          <a-popconfirm title="停止全部策略？（撤所有触发单+停所有算法，持仓保留）" @confirm="doStopAll">
+            <a-button size="small" danger>全部停止</a-button>
+          </a-popconfirm>
           <a-button size="small" @click="openTriggerList">触发单 ({{ store.strategies.reduce((n, s) => n + (s.triggers?.length || 0), 0) }})</a-button>
           <a-button size="small" @click="openSubscription">订阅管理</a-button>
           <a-button size="small" @click="openSettings">设置</a-button>

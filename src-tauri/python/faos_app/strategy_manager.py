@@ -8,6 +8,19 @@ from faos_app.models import SpreadQuote, Strategy, StrategyStatus, Trigger, Trig
 from faos_app.store import StrategyStore
 
 _OPEN_ACTIONS = {TriggerAction.open_short, TriggerAction.open_long}
+def _is_delivery_month(symbol: str) -> bool:
+    """合约交割月=当前月（如 10 月的 ag2610）→ 临近交割流动性枯竭，不参与组合。"""
+    from datetime import date
+
+    from faos_app.contract_seed import _contract_month
+
+    ym = _contract_month(symbol)
+    if not ym:
+        return False
+    today = date.today()
+    return ym == (today.year, today.month)
+
+
 _MANUAL_FIELD = {
     TriggerAction.open_short: "manual_open_short",
     TriggerAction.open_long: "manual_open_long",
@@ -76,6 +89,7 @@ class StrategyManager:
 
         matched, seed_dominant, stale = symbols_for_product(
             product, self._contracts_provider())
+        matched = [s for s in matched if not _is_delivery_month(s)]  # 当月交割=死腿（盘口枯竭，夜盘实测）
         # 主力优先级：用户显式配置（月号或全名）> 市场持仓量实测 > 种子显式值 > 日期推断
         want = self._dominant_overrides().get(product.lower())
         configured = next((s for s in matched if s.endswith(str(want))), None) if want else None
@@ -185,6 +199,12 @@ class StrategyManager:
         self._push.strategy(s)
         return s
 
+    def stop_all(self) -> list[Strategy]:
+        """一键停止全部策略（撤触发单+停算法，持仓保留，策略保持在线）。"""
+        for s in list(self._store.list()):
+            self.stop(s.id)
+        return self._store.list()
+
     def set_config(self, strategy_id: int, slip_a=None,
                    slip_b=None, order_type_a=None, order_type_b=None,
                    max_cancels_a=None) -> Strategy:
@@ -271,6 +291,9 @@ class StrategyManager:
                 f"超出总份限制：已持仓 {abs(s.held_units)} 份 + 本次 {lots} 份 > 总份 {s.total_lots}"
             )
         setattr(s, _MANUAL_FIELD[action], spread)  # 下单价保存进策略价差（行情退役后差价来源=人工）
+        from faos_app.log import log
+
+        log(f"FAOS_TRIGGER_PLACED #{s.id} {s.pair} {action.value}@{spread} lots={lots}")
         t = Trigger(trigger_id=f"t{uuid4().hex[:8]}", action=action, spread=spread, lots=lots)
         s.triggers.append(t)
         if s.status in (StrategyStatus.active, StrategyStatus.unsubscribed, StrategyStatus.pending):

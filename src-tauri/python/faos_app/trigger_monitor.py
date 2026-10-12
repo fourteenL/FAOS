@@ -53,9 +53,14 @@ class TriggerMonitor:
                     continue
                 if self._executor is None:
                     continue  # 执行器未接入（CTP 未启动）：触发单保留
+                from faos_app.log import log
+
+                log(f"FAOS_TRIGGER_FIRED #{s.id} {s.pair} {t.action.value}@{t.spread}")
                 algoid = self._executor.execute(s, t)
                 if algoid is None:
+                    log(f"FAOS_TRIGGER_DEFERRED #{s.id} 执行器返回 None（CTP 未就绪），触发单保留")
                     continue  # CTP 未就绪：触发单保留，状态不变
+                log(f"FAOS_ALGO_STARTED #{s.id} algoid={algoid}")
                 s.triggers.remove(t)
                 s.active_algos.append(algoid)
                 s.executing_action = t.action.value  # 执行中方向可见（触发单已消费、held 未更新）

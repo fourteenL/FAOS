@@ -269,6 +269,14 @@ async def delete_product(body: ProductBody, state: Annotated[AppState, State()])
 
 
 @commands.command()
+async def stop_all(body: Empty, state: Annotated[AppState, State()]) -> Ok:
+    """一键停止全部策略：撤所有触发单+停所有算法（持仓保留）。"""
+    stopped = [s.id for s in state.manager.stop_all()]
+    state.pusher.notice("success", f"已停止全部 {len(stopped)} 个策略（撤触发单+停算法），持仓保留")
+    return Ok()
+
+
+@commands.command()
 async def stop_strategy(body: IdBody, state: Annotated[AppState, State()]) -> Strategy:
     return _guard(state, lambda: state.manager.stop(body.strategy_id))
 

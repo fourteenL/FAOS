@@ -50,6 +50,7 @@ class SpreadService:
         self._algo_direction: dict[str, object] = {}  # algoid -> Direction（方向停止用）
         self._algo_action: dict[str, object] = {}  # algoid -> TriggerAction（成功通知文案用）
         self._algo_latest: dict[str, "AlgoItem"] = {}  # pair -> 最新算法快照（追价文案用）
+        self._algo_wait_warned: set = set()  # pair -> 已告警（盘口停滞提醒一次性）
         if event_engine is not None:
             self._install_algo_class()
             event_engine.register(EVENT_SPREAD_ALGO, self._wrap_algo_handler)
@@ -249,6 +250,15 @@ class SpreadService:
             return
 
     def _process_spread_algo(self, item: AlgoItem) -> None:
+        # 盘口停滞提醒：算法跑 20 秒一笔未发（count=秒）→ 大概率某腿无双边报价（死腿/收盘）
+        if (item.status not in _FINISHED_STATUS and item.count >= 20
+                and getattr(item, "chase_a", 0) == 0 and getattr(item, "chase_b", 0) == 0
+                and item.spread_name not in self._algo_wait_warned):
+            self._algo_wait_warned.add(item.spread_name)
+            self._push.notice(
+                "warn",
+                f"{item.spread_name} 算法已启动但价差盘口无效（某腿可能无双边报价/行情停滞），"
+                "暂不下单；请检查两腿合约流动性，长期无价差将超时自动停止")
         self._algo_latest[item.spread_name] = item  # 未完成算法的最新快照
         d = asdict(item)
         d["direction"] = getattr(item.direction, "value", str(item.direction))
@@ -266,6 +276,9 @@ class SpreadService:
         if item.traded_volume > 0:
             tpl = _ACTION_DONE_NOTICE.get(action, "价差算法完成（成交 {v:.0f} 份）")
             self._push.notice("success", tpl.format(v=item.traded_volume))
+        from faos_app.log import log
+
+        log(f"FAOS_ALGO_DONE {item.spread_name} {item.status.value} traded={item.traded_volume}")
         signed = item.traded_volume if item.direction == Direction.LONG else -item.traded_volume
         s.held_units = round(s.held_units + signed, 6)
         self._store.update(s)

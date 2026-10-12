@@ -29,6 +29,8 @@ def compose_quote(tick_a, tick_b) -> Optional[SpreadQuote]:
 class LocalSpreadFeed:
     """订阅策略两腿行情，tick 到达即合成价差并驱动触发监控。"""
 
+    _logged_pairs: set = set()  # 每对仅记一次首帧（诊断：证明行情链路活着）
+
     def __init__(self, ctp, manager, monitor, portal=None):
         self._ctp = ctp
         self._manager = manager
@@ -51,19 +53,32 @@ class LocalSpreadFeed:
 
             log(f"FAOS_LOCAL_SPREAD_FAIL {e}")
 
+    _STALE_SEC = 30.0  # 任一腿行情超过 30 秒未更新视为停滞（死腿/收盘），不合成不触发
+
     def on_tick(self, tick) -> None:
-        self._ticks[tick.vt_symbol] = tick
+        import time as _time
+
+        self._ticks[tick.vt_symbol] = (tick, _time.monotonic())
         from faos_app.spread_service import vt_symbol_of
 
         symbol = tick.vt_symbol
+        now = _time.monotonic()
         for s in self._manager.store.list():
             a, b = vt_symbol_of(s.leg_a), vt_symbol_of(s.leg_b)
             if symbol != a and symbol != b:
                 continue
-            ta, tb = self._ticks.get(a), self._ticks.get(b)
-            if ta is None or tb is None:
+            ea, eb = self._ticks.get(a), self._ticks.get(b)
+            if ea is None or eb is None:
                 continue
+            if now - ea[1] > self._STALE_SEC or now - eb[1] > self._STALE_SEC:
+                continue  # 陈旧 tick 不点火（死腿残留价不算数）
+            ta, tb = ea[0], eb[0]
             q = compose_quote(ta, tb)
             if q is None:
                 continue
+            if s.pair not in LocalSpreadFeed._logged_pairs:
+                LocalSpreadFeed._logged_pairs.add(s.pair)
+                from faos_app.log import log
+
+                log(f"FAOS_SPREAD_COMPOSED {s.pair} 首帧 空开={q.short_open} 多开={q.long_open}")
             self._monitor.on_spread(s.pair, q)
