@@ -8,6 +8,20 @@ from faos_app.models import SpreadQuote, Strategy, StrategyStatus, Trigger, Trig
 from faos_app.store import StrategyStore
 
 _OPEN_ACTIONS = {TriggerAction.open_short, TriggerAction.open_long}
+_LIQUID_TOP_N = 6  # 活跃月份截取数（持仓量前 N 参与组合；远月无报价=价差无法合成）
+
+
+def _filter_liquid_months_impl(product, matched, oi_hint):
+    """有持仓量数据时只保留 OI 前 N 的月份（死腿远月不参与组合）。"""
+    if not oi_hint:
+        return matched
+    ranked = sorted(((v, s) for s, v in ((sym, oi_hint.get(f"{sym}.SHFE", 0)) for sym in matched)
+                     if v and v > 0), reverse=True)
+    if len(ranked) <= _LIQUID_TOP_N:
+        return [s for _, s in ranked] if ranked else matched
+    return sorted(s for _, s in ranked[:_LIQUID_TOP_N])
+
+
 def _is_delivery_month(symbol: str) -> bool:
     """合约交割月=当前月（如 10 月的 ag2610）→ 临近交割流动性枯竭，不参与组合。"""
     from datetime import date
@@ -90,6 +104,7 @@ class StrategyManager:
         matched, seed_dominant, stale = symbols_for_product(
             product, self._contracts_provider())
         matched = [s for s in matched if not _is_delivery_month(s)]  # 当月交割=死腿（盘口枯竭，夜盘实测）
+        matched = self._filter_liquid_months(product, matched)  # 远月死腿（OI 不足）剔除
         # 主力优先级：用户显式配置（月号或全名）> 市场持仓量实测 > 种子显式值 > 日期推断
         want = self._dominant_overrides().get(product.lower())
         configured = next((s for s in matched if s.endswith(str(want))), None) if want else None
@@ -117,6 +132,13 @@ class StrategyManager:
             self._legs_subscriber(sorted(set(legs)))
         existing = sum(1 for s in self._store.list() if self._product_of(s.pair) == product)
         return created, existing
+
+    def _filter_liquid_months(self, product: str, matched: list) -> list:
+        hint = self._dominant_hints.get(product.strip().lower())
+        try:
+            return _filter_liquid_months_impl(product, matched, hint)
+        except Exception:
+            return matched
 
     def _dominant_overrides(self) -> dict:
         """主力配置覆盖（settings.product_dominant，可选）。"""
@@ -332,6 +354,16 @@ class StrategyManager:
             if s.status == StrategyStatus.executing:
                 s.status = StrategyStatus.armed if s.triggers else StrategyStatus.active
                 changed = True
+            if _is_delivery_month(s.leg_a) or _is_delivery_month(s.leg_b):
+                # 存量死腿组合（当月交割腿，盘口枯竭价差无法合成）——启动即清理
+                for hook in self.on_stop_hooks:
+                    hook(s)
+                self._store.remove(s.id)
+                self._push.strategy_deleted(s.id)
+                self._push.notice(
+                    "warn", f"策略 #{s.id} {s.pair} 含当月交割合约（盘口枯竭），已自动清理；"
+                    "如需该品种请重新订阅（新版自动剔除死腿月份）")
+                continue
             if changed:
                 self._store.update(s)
                 self._push.strategy(s)
