@@ -32,6 +32,7 @@ class StrategyManager:
         self._contracts_provider = contracts_provider or (lambda: [])      # vnpy 合约列表（品种展开用）
         self._contract_stale_notifier = contract_stale_notifier or (lambda product: None)
         self._settings = settings
+        self._dominant_hints: dict[str, dict] = {}  # product -> {vt_symbol: 持仓量}（市场实测）
         # 停止策略时的扩展点（T10 的 spread_service 注册撤算法钩子）
         self.on_stop_hooks: list[Callable[[Strategy], None]] = []
         # 方向级停止扩展点：hook(strategy, side)，side ∈ {"short","long"}
@@ -73,12 +74,18 @@ class StrategyManager:
             raise ValueError("品种代码应为纯字母，如 ag")
         from faos_app.contract_seed import symbols_for_product
 
-        matched, dominant, stale = symbols_for_product(
-            product, self._contracts_provider(), self._dominant_overrides())
-        if not matched:
-            raise ValueError(f"品种 {product} 无可用合约（开盘连接 CTP 后自动刷新合约表；或检查品种代码）")
+        matched, seed_dominant, stale = symbols_for_product(
+            product, self._contracts_provider())
+        # 主力优先级：用户显式配置（月号或全名）> 市场持仓量实测 > 种子显式值 > 日期推断
+        want = self._dominant_overrides().get(product.lower())
+        configured = next((s for s in matched if s.endswith(str(want))), None) if want else None
+        dominant = configured or self._dominant_hint_of(product, matched) or seed_dominant
+        if not dominant:
+            dominant = matched[0] if matched else ""
         if stale:  # 来源为种子/兜底（非开盘或 OMS 未就绪），提醒后仍可用（离线测试）
             self._contract_stale_notifier(product)
+        if not matched:
+            raise ValueError(f"品种 {product} 无可用合约（开盘连接 CTP 后自动刷新合约表；或检查品种代码）")
         others = [s for s in matched if s != dominant]
         created, legs = 0, []
         for sym in others:  # 组合：sym&主力（B 腿=主力，被动对冲腿）
@@ -100,6 +107,30 @@ class StrategyManager:
     def _dominant_overrides(self) -> dict:
         """主力配置覆盖（settings.product_dominant，可选）。"""
         return dict(getattr(self._settings, "product_dominant", None) or {})
+
+    def set_dominant_hint(self, product: str, oi_map: dict) -> None:
+        """市场持仓量提示（品种订阅前实测；create_product 时优先于日期推断）。"""
+        self._dominant_hints[product.strip().lower()] = dict(oi_map or {})
+
+    def _dominant_hint_of(self, product: str, matched: list) -> Optional[str]:
+        hint = self._dominant_hints.get(product.strip().lower())
+        if not hint:
+            return None
+        ranked = sorted(((oi, s) for s, oi in hint.items() if oi > 0), reverse=True)
+        for _, vt in ranked:
+            sym = vt.split(".")[0]
+            if sym in matched:
+                return sym
+        return None
+
+    def subscribe_product_contracts(self, product: str) -> list:
+        """订阅该品种全部合约行情（为持仓量实测供数）；返回裸合约号列表。"""
+        from faos_app.contract_seed import symbols_for_product
+
+        matched, _, _ = symbols_for_product(product.strip().lower(), self._contracts_provider())
+        if matched:
+            self._legs_subscriber([f"{s}.SHFE" for s in matched])
+        return matched
 
     def subscribe(self, strategy_id: int) -> Strategy:
         s = self._require(strategy_id)

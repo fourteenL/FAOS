@@ -137,6 +137,7 @@ class CtpService:
         self.on_ready: Optional[Callable[[], None]] = None  # 合约查询完成回调（含持仓校正）
         self._ready_fired = False
         self._connected = False
+        self.oi_map: dict = {}  # vt_symbol -> 最新持仓量（市场主力判定）
 
     # -- 生命周期 -----------------------------------------------------------
 
@@ -156,12 +157,13 @@ class CtpService:
 
         self.main_engine.add_gateway(CtpGateway)
 
-        from vnpy.trader.event import EVENT_LOG, EVENT_ORDER, EVENT_POSITION, EVENT_TRADE
+        from vnpy.trader.event import EVENT_LOG, EVENT_ORDER, EVENT_POSITION, EVENT_TICK, EVENT_TRADE
 
         self.event_engine.register(EVENT_POSITION, self._wrap(self._on_position))
         self.event_engine.register(EVENT_ORDER, self._wrap(self._on_order))
         self.event_engine.register(EVENT_TRADE, self._wrap(self._on_trade))
         self.event_engine.register(EVENT_LOG, self._wrap(self._on_log))
+        self.event_engine.register(EVENT_TICK, self._wrap(self._on_tick_oi))
         # MainEngine.__init__ 已 start EventEngine，不再重复启动
         self._start_flush_loop()
 
@@ -215,6 +217,12 @@ class CtpService:
     def _on_position(self, data) -> None:
         self._coalescer.push(data, time.monotonic())
 
+    def _on_tick_oi(self, tick) -> None:
+        """tick 持仓量 → 主力判定数据（品种订阅时实测最大持仓=市场主力）。"""
+        oi = getattr(tick, "open_interest", 0) or 0
+        if oi > 0:
+            self.oi_map[tick.vt_symbol] = float(oi)
+
     def _on_order(self, data) -> None:
         self._push.order(order_to_dict(data))
 
@@ -266,6 +274,10 @@ class CtpService:
             symbol, _, exchange = sym.partition(".")
             req = SubscribeRequest(symbol=symbol, exchange=Exchange(exchange or "SHFE"))
             self.main_engine.subscribe(req, "CTP")
+
+    def get_open_interest(self) -> dict:
+        """各合约最新持仓量快照（主力判定用）。"""
+        return dict(self.oi_map)
 
     def get_contract_symbols(self) -> list:
         """vnpy OMS 已加载的全部 SHFE 合约号（品种本地展开用）。"""

@@ -205,6 +205,26 @@ async def list_strategies(body: Empty, state: Annotated[AppState, State()]) -> S
 
 @commands.command()
 async def create_strategy(body: CreateBody, state: Annotated[AppState, State()]) -> StrategyListResp:
+    async def warm_dominant(product: str) -> None:
+        """品种订阅前先订全合约行情，等首批持仓量实测市场主力（最多 4 秒，非交易时段跳过）。"""
+        import anyio
+
+        matched = state.manager.subscribe_product_contracts(product)
+        if not matched:
+            return
+        prefix = f"{product.strip().lower()}"
+        deadline = 4.0
+        waited = 0.0
+        while waited < deadline:
+            oi = {vt: v for vt, v in state.ctp.get_open_interest().items()
+                  if vt.split(".")[0].rstrip("0123456789") == prefix
+                  or "".join(ch for ch in vt.split(".")[0] if ch.isalpha()) == prefix}
+            if len(oi) >= min(2, len(matched)):
+                state.manager.set_dominant_hint(prefix, oi)
+                return
+            await anyio.sleep(0.4)
+            waited += 0.4
+
     def run():
         from faos_app.log import log
 
@@ -221,6 +241,8 @@ async def create_strategy(body: CreateBody, state: Annotated[AppState, State()])
             raise ValueError(f"未知创建方式: {body.mode}")
         return StrategyListResp([s.model_dump(mode="json") for s in state.store.list()])
 
+    if body.mode == "product":
+        await warm_dominant(body.product)
     return _guard(state, run)
 
 

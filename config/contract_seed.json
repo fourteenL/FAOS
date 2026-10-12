@@ -16,7 +16,7 @@
     "ad2708.SHFE",
     "ad2709.SHFE"
    ],
-   "dominant": "ad2611"
+   "dominant": "ad2612"
   },
   "ag": {
    "contracts": [
@@ -33,7 +33,7 @@
     "ag2708.SHFE",
     "ag2709.SHFE"
    ],
-   "dominant": "ag2611"
+   "dominant": "ag2612"
   },
   "al": {
    "contracts": [
@@ -50,7 +50,7 @@
     "al2708.SHFE",
     "al2709.SHFE"
    ],
-   "dominant": "al2611"
+   "dominant": "al2612"
   },
   "ao": {
    "contracts": [
@@ -67,7 +67,7 @@
     "ao2708.SHFE",
     "ao2709.SHFE"
    ],
-   "dominant": "ao2611"
+   "dominant": "ao2612"
   },
   "au": {
    "contracts": [
@@ -80,7 +80,7 @@
     "au2708.SHFE",
     "au2710.SHFE"
    ],
-   "dominant": "au2611"
+   "dominant": "au2612"
   },
   "br": {
    "contracts": [
@@ -97,7 +97,7 @@
     "br2708.SHFE",
     "br2709.SHFE"
    ],
-   "dominant": "br2611"
+   "dominant": "br2612"
   },
   "bu": {
    "contracts": [
@@ -118,7 +118,7 @@
     "bu2806.SHFE",
     "bu2809.SHFE"
    ],
-   "dominant": "bu2611"
+   "dominant": "bu2612"
   },
   "cu": {
    "contracts": [
@@ -135,7 +135,7 @@
     "cu2708.SHFE",
     "cu2709.SHFE"
    ],
-   "dominant": "cu2611"
+   "dominant": "cu2612"
   },
   "fu": {
    "contracts": [
@@ -152,7 +152,7 @@
     "fu2709.SHFE",
     "fu2710.SHFE"
    ],
-   "dominant": "fu2611"
+   "dominant": "fu2612"
   },
   "hc": {
    "contracts": [
@@ -169,7 +169,7 @@
     "hc2708.SHFE",
     "hc2709.SHFE"
    ],
-   "dominant": "hc2611"
+   "dominant": "hc2612"
   },
   "ni": {
    "contracts": [
@@ -186,7 +186,7 @@
     "ni2708.SHFE",
     "ni2709.SHFE"
    ],
-   "dominant": "ni2611"
+   "dominant": "ni2612"
   },
   "op": {
    "contracts": [
@@ -203,7 +203,7 @@
     "op2708.SHFE",
     "op2709.SHFE"
    ],
-   "dominant": "op2611"
+   "dominant": "op2612"
   },
   "pb": {
    "contracts": [
@@ -220,7 +220,7 @@
     "pb2708.SHFE",
     "pb2709.SHFE"
    ],
-   "dominant": "pb2611"
+   "dominant": "pb2612"
   },
   "rb": {
    "contracts": [
@@ -237,7 +237,7 @@
     "rb2708.SHFE",
     "rb2709.SHFE"
    ],
-   "dominant": "rb2611"
+   "dominant": "rb2612"
   },
   "ru": {
    "contracts": [
@@ -269,7 +269,7 @@
     "sn2708.SHFE",
     "sn2709.SHFE"
    ],
-   "dominant": "sn2611"
+   "dominant": "sn2612"
   },
   "sp": {
    "contracts": [
@@ -286,7 +286,7 @@
     "sp2708.SHFE",
     "sp2709.SHFE"
    ],
-   "dominant": "sp2611"
+   "dominant": "sp2612"
   },
   "ss": {
    "contracts": [
@@ -303,7 +303,7 @@
     "ss2708.SHFE",
     "ss2709.SHFE"
    ],
-   "dominant": "ss2611"
+   "dominant": "ss2612"
   },
   "wr": {
    "contracts": [
@@ -320,7 +320,7 @@
     "wr2708.SHFE",
     "wr2709.SHFE"
    ],
-   "dominant": "wr2611"
+   "dominant": "wr2612"
   },
   "zn": {
    "contracts": [
@@ -337,7 +337,7 @@
     "zn2708.SHFE",
     "zn2709.SHFE"
    ],
-   "dominant": "zn2611"
+   "dominant": "zn2612"
   }
  }
 }
