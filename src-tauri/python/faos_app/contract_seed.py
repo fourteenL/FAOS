@@ -20,10 +20,12 @@ import sys
 from datetime import date
 from pathlib import Path
 
-# 开发兜底（种子文件缺失时用；真实合约以开盘刷新为准）
+# 开发兜底（种子文件缺失时用；月份与 vnpy 真实挂牌一致，开盘刷新为准）
 SEED_DEFAULT = {
-    "ag": {"contracts": ["ag2610", "ag2612", "ag2702", "ag2704", "ag2706"], "dominant": None},
-    "au": {"contracts": ["au2610", "au2612", "au2602", "au2604", "au2606"], "dominant": None},
+    "ag": {"contracts": ["ag2610", "ag2611", "ag2612", "ag2701", "ag2702", "ag2703",
+                          "ag2704", "ag2705", "ag2706", "ag2707", "ag2708", "ag2709"], "dominant": None},
+    "au": {"contracts": ["au2610", "au2611", "au2612", "au2702", "au2704",
+                          "au2706", "au2708", "au2710"], "dominant": None},
 }
 
 SEED_NAME = "contract_seed.json"
@@ -74,12 +76,18 @@ def _grouped_symbols(data: dict, product: str) -> tuple[list, str]:
 
 
 def save_seed(symbols: list) -> None:
-    """覆盖写种子：OMS 合约列表 → 按品种分组 + 主力推断（保留既有品种备注性数据）。"""
+    """覆盖写种子：OMS 合约列表 → 按品种分组 + 主力推断。
+
+    只保留纯期货（品种字母+3~4位月份，如 ag2612）；期权（ag2611C10100）剔除——
+    真实 vnpy 合约查询会带回全部 SHFE 期权，混入会污染品种分组。
+    """
     groups: dict[str, list] = {}
     for vt in symbols:
         if not vt.endswith(".SHFE"):
             continue
         sym = vt.split(".")[0]
+        if not _FUTURES_RE.fullmatch(sym):  # 期权/异常符号不入种子
+            continue
         product = "".join(ch for ch in sym if ch.isalpha())
         groups.setdefault(product, []).append(vt)
     old = load_seed()
@@ -107,6 +115,7 @@ def seed_age_days() -> float:
 
 
 _MONTH_RE = re.compile(r"(\d{3,4})$")
+_FUTURES_RE = re.compile(r"^[a-zA-Z]{1,2}\d{3,4}$")  # 纯期货：品种字母+月份（期权带 C/P 行权价被排除）
 
 
 def _contract_month(symbol: str):

@@ -1,5 +1,5 @@
 {
- "updated_at": "2026-10-09",
+ "updated_at": "2026-10-12",
  "products": {
   "ad": {
    "contracts": [
@@ -12,7 +12,9 @@
     "ad2704.SHFE",
     "ad2705.SHFE",
     "ad2706.SHFE",
-    "ad2708.SHFE"
+    "ad2707.SHFE",
+    "ad2708.SHFE",
+    "ad2709.SHFE"
    ],
    "dominant": "ad2611"
   },
@@ -27,7 +29,9 @@
     "ag2704.SHFE",
     "ag2705.SHFE",
     "ag2706.SHFE",
-    "ag2708.SHFE"
+    "ag2707.SHFE",
+    "ag2708.SHFE",
+    "ag2709.SHFE"
    ],
    "dominant": "ag2611"
   },
@@ -42,7 +46,9 @@
     "al2704.SHFE",
     "al2705.SHFE",
     "al2706.SHFE",
-    "al2708.SHFE"
+    "al2707.SHFE",
+    "al2708.SHFE",
+    "al2709.SHFE"
    ],
    "dominant": "al2611"
   },
@@ -57,7 +63,9 @@
     "ao2704.SHFE",
     "ao2705.SHFE",
     "ao2706.SHFE",
-    "ao2708.SHFE"
+    "ao2707.SHFE",
+    "ao2708.SHFE",
+    "ao2709.SHFE"
    ],
    "dominant": "ao2611"
   },
@@ -66,13 +74,11 @@
     "au2610.SHFE",
     "au2611.SHFE",
     "au2612.SHFE",
-    "au2701.SHFE",
     "au2702.SHFE",
-    "au2703.SHFE",
     "au2704.SHFE",
-    "au2705.SHFE",
     "au2706.SHFE",
-    "au2708.SHFE"
+    "au2708.SHFE",
+    "au2710.SHFE"
    ],
    "dominant": "au2611"
   },
@@ -87,7 +93,9 @@
     "br2704.SHFE",
     "br2705.SHFE",
     "br2706.SHFE",
-    "br2708.SHFE"
+    "br2707.SHFE",
+    "br2708.SHFE",
+    "br2709.SHFE"
    ],
    "dominant": "br2611"
   },
@@ -102,7 +110,13 @@
     "bu2704.SHFE",
     "bu2705.SHFE",
     "bu2706.SHFE",
-    "bu2708.SHFE"
+    "bu2707.SHFE",
+    "bu2708.SHFE",
+    "bu2709.SHFE",
+    "bu2712.SHFE",
+    "bu2803.SHFE",
+    "bu2806.SHFE",
+    "bu2809.SHFE"
    ],
    "dominant": "bu2611"
   },
@@ -117,13 +131,14 @@
     "cu2704.SHFE",
     "cu2705.SHFE",
     "cu2706.SHFE",
-    "cu2708.SHFE"
+    "cu2707.SHFE",
+    "cu2708.SHFE",
+    "cu2709.SHFE"
    ],
    "dominant": "cu2611"
   },
   "fu": {
    "contracts": [
-    "fu2610.SHFE",
     "fu2611.SHFE",
     "fu2612.SHFE",
     "fu2701.SHFE",
@@ -132,7 +147,10 @@
     "fu2704.SHFE",
     "fu2705.SHFE",
     "fu2706.SHFE",
-    "fu2708.SHFE"
+    "fu2707.SHFE",
+    "fu2708.SHFE",
+    "fu2709.SHFE",
+    "fu2710.SHFE"
    ],
    "dominant": "fu2611"
   },
@@ -147,7 +165,9 @@
     "hc2704.SHFE",
     "hc2705.SHFE",
     "hc2706.SHFE",
-    "hc2708.SHFE"
+    "hc2707.SHFE",
+    "hc2708.SHFE",
+    "hc2709.SHFE"
    ],
    "dominant": "hc2611"
   },
@@ -162,7 +182,9 @@
     "ni2704.SHFE",
     "ni2705.SHFE",
     "ni2706.SHFE",
-    "ni2708.SHFE"
+    "ni2707.SHFE",
+    "ni2708.SHFE",
+    "ni2709.SHFE"
    ],
    "dominant": "ni2611"
   },
@@ -177,7 +199,9 @@
     "op2704.SHFE",
     "op2705.SHFE",
     "op2706.SHFE",
-    "op2708.SHFE"
+    "op2707.SHFE",
+    "op2708.SHFE",
+    "op2709.SHFE"
    ],
    "dominant": "op2611"
   },
@@ -192,7 +216,9 @@
     "pb2704.SHFE",
     "pb2705.SHFE",
     "pb2706.SHFE",
-    "pb2708.SHFE"
+    "pb2707.SHFE",
+    "pb2708.SHFE",
+    "pb2709.SHFE"
    ],
    "dominant": "pb2611"
   },
@@ -207,7 +233,9 @@
     "rb2704.SHFE",
     "rb2705.SHFE",
     "rb2706.SHFE",
-    "rb2708.SHFE"
+    "rb2707.SHFE",
+    "rb2708.SHFE",
+    "rb2709.SHFE"
    ],
    "dominant": "rb2611"
   },
@@ -215,14 +243,14 @@
    "contracts": [
     "ru2610.SHFE",
     "ru2611.SHFE",
-    "ru2612.SHFE",
     "ru2701.SHFE",
-    "ru2702.SHFE",
     "ru2703.SHFE",
     "ru2704.SHFE",
     "ru2705.SHFE",
     "ru2706.SHFE",
-    "ru2708.SHFE"
+    "ru2707.SHFE",
+    "ru2708.SHFE",
+    "ru2709.SHFE"
    ],
    "dominant": "ru2611"
   },
@@ -237,7 +265,9 @@
     "sn2704.SHFE",
     "sn2705.SHFE",
     "sn2706.SHFE",
-    "sn2708.SHFE"
+    "sn2707.SHFE",
+    "sn2708.SHFE",
+    "sn2709.SHFE"
    ],
    "dominant": "sn2611"
   },
@@ -252,7 +282,9 @@
     "sp2704.SHFE",
     "sp2705.SHFE",
     "sp2706.SHFE",
-    "sp2708.SHFE"
+    "sp2707.SHFE",
+    "sp2708.SHFE",
+    "sp2709.SHFE"
    ],
    "dominant": "sp2611"
   },
@@ -267,7 +299,9 @@
     "ss2704.SHFE",
     "ss2705.SHFE",
     "ss2706.SHFE",
-    "ss2708.SHFE"
+    "ss2707.SHFE",
+    "ss2708.SHFE",
+    "ss2709.SHFE"
    ],
    "dominant": "ss2611"
   },
@@ -282,7 +316,9 @@
     "wr2704.SHFE",
     "wr2705.SHFE",
     "wr2706.SHFE",
-    "wr2708.SHFE"
+    "wr2707.SHFE",
+    "wr2708.SHFE",
+    "wr2709.SHFE"
    ],
    "dominant": "wr2611"
   },
@@ -297,7 +333,9 @@
     "zn2704.SHFE",
     "zn2705.SHFE",
     "zn2706.SHFE",
-    "zn2708.SHFE"
+    "zn2707.SHFE",
+    "zn2708.SHFE",
+    "zn2709.SHFE"
    ],
    "dominant": "zn2611"
   }
