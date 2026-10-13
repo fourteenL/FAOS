@@ -12,6 +12,7 @@ import OrderPanel from "./components/OrderPanel.vue";
 import SettingsDrawer from "./components/SettingsDrawer.vue";
 import Login from "./components/Login.vue";
 import ProductFilter from "./components/ProductFilter.vue";
+import { applyAppTitle } from "./utils/app_title.js";
 
 const store = useAppStore();
 const settingsDrawer = ref(null);
@@ -40,6 +41,7 @@ async function doStopAll() {
 }
 
 onMounted(async () => {
+  applyAppTitle(); // 窗口标题带版本号（如 FAOS 差价套利 v0.1.0-beta.6）
   try {
     await store.init(); // 状态/事件绑定先行（登录页也需要连接状态）
   } catch (e) {
