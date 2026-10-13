@@ -104,11 +104,21 @@ async function doPlace(action, spread) {
   }
 }
 
+// 平仓=反向开仓：持反向仓时空框提示给平仓指引（2026-10-13 实测用户卡在空框无日志可查）
+function emptyInputHint(action) {
+  const held = s.value?.held_units || 0;
+  if (action === "open_long" && held < 0)
+    return "持空仓：请填多开差价平仓（当前多开价附近可尽快触发）";
+  if (action === "open_short" && held > 0)
+    return "持多仓：请填空开差价平仓（当前空开价附近可尽快触发）";
+  return null;
+}
+
 // 启动：每方向一张开仓挂单（做空/做多可并存）；同方向已有未触发挂单提示改用「修改」
 async function start(action) {
   const spread = form[OPEN_INPUT[action]];
   if (spread == null) {
-    message.warning("请填写触发差价");
+    message.warning(emptyInputHint(action) || "请填写触发差价");
     return;
   }
   if (openTriggerOf(action)) {
