@@ -78,11 +78,14 @@ watch(
 );
 
 // 无触发单且无运行算法 → 无可停止的活动，停止按钮置灰
-const stopDisabled = computed(() => {
+// 停止按方向（做空/做多并存后互不影响）：本方向无挂单且无运行算法 → 置灰
+const sideOfAction = (action) => (action === "open_short" || action === "close_short" ? "short" : "long");
+const stopDisabled = (side) => {
       const st = s.value;
-      return !st || (st.triggers.length === 0 && st.active_algos.length === 0);
-    });
-const openTrigger = computed(() => s.value?.triggers.find((t) => t.action.startsWith("open_")));
+      if (!st) return true;
+      const sideLive = (st.triggers || []).some((t) => sideOfAction(t.action) === side);
+      return !sideLive && st.active_algos.length === 0;
+};
 const openTriggerOf = (action) => s.value?.triggers.find((t) => t.action === action);
 
 const OPEN_INPUT = { open_short: "open_short", open_long: "open_long" };
@@ -104,15 +107,15 @@ async function doPlace(action, spread) {
   }
 }
 
-// 启动：只做首次挂单；已有未触发的开仓挂单（任一方向）提示改用「修改」
+// 启动：每方向一张开仓挂单（做空/做多可并存）；同方向已有未触发挂单提示改用「修改」
 async function start(action) {
   const spread = form[OPEN_INPUT[action]];
   if (spread == null) {
     message.warning("请填写触发差价");
     return;
   }
-  if (openTrigger.value) {
-    const which = openTrigger.value.action === "open_short" ? "做空" : "做多";
+  if (openTriggerOf(action)) {
+    const which = action === "open_short" ? "做空" : "做多";
     message.warning(`已有未触发的${which}开仓挂单，请用「修改」改价或先「停止」`);
     return;
   }
@@ -136,10 +139,12 @@ async function modify(action) {
   }
 }
 
-async function stopCurrent() {
+// 停止按方向：撤本方向触发单 + 停本方向算法（挂单/执行互不影响另一方向），持仓保留
+async function stopCurrent(side) {
   try {
-    await store.stopStrategy(s.value.id);
-    message.success("已停止当前操作（撤触发单 + 停算法），持仓保留");
+    await store.stopDirection(s.value.id, side);
+    const which = side === "short" ? "做空" : "做多";
+    message.success(`已停止${which}侧（撤挂单 + 停算法），持仓保留`);
   } catch (e) {
     message.error(String(e));
   }
@@ -168,7 +173,7 @@ function fmt(v) {
           <a-input-number v-model:value="form.open_short" :step="step" :precision="precision" size="small" style="width: 90px" @change="markDirty('open_short')" />
           <a-button size="small" type="primary" danger @click="start('open_short')">启动</a-button>
           <a-button size="small" @click="modify('open_short')">修改</a-button>
-          <a-button size="small" :disabled="stopDisabled" @click="stopCurrent">停止</a-button>
+          <a-button size="small" :disabled="stopDisabled('short')" @click="stopCurrent('short')">停止</a-button>
         </div>
         <div class="line">
           <label>空平差价</label>
@@ -182,7 +187,7 @@ function fmt(v) {
           <a-input-number v-model:value="form.open_long" :step="step" :precision="precision" size="small" style="width: 90px" @change="markDirty('open_long')" />
           <a-button size="small" type="primary" @click="start('open_long')">启动</a-button>
           <a-button size="small" @click="modify('open_long')">修改</a-button>
-          <a-button size="small" :disabled="stopDisabled" @click="stopCurrent">停止</a-button>
+          <a-button size="small" :disabled="stopDisabled('long')" @click="stopCurrent('long')">停止</a-button>
         </div>
         <div class="line">
           <label>多平差价</label>

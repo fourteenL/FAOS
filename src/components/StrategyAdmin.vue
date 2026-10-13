@@ -124,7 +124,7 @@ async function removeStrategy() {
         </div>
         <a-button size="small" type="primary" @click="saveLots">保存份数</a-button>
       </div>
-      <p class="hint">净持仓 {{ Math.abs(s.held_units) }} 份（{{ s.held_units < 0 ? "空头价差" : s.held_units > 0 ? "多头价差" : "无" }}），上限校验：|净持仓| + 单份 ≤ 总份。</p>
+      <p class="hint">净持仓 {{ Math.abs(s.held_units) }} 份（{{ s.held_units < 0 ? "空头价差" : s.held_units > 0 ? "多头价差" : "无" }}），上限校验：开仓成交后 |净持仓| ≤ 总份（做空/做多可双向同时挂单，按净额校验）。</p>
     </template>
     <div v-else class="placeholder">点击上方表格选择一个策略后在此管理</div>
   </div>

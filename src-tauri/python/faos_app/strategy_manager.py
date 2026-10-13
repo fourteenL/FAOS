@@ -313,20 +313,22 @@ class StrategyManager:
         lots = s.single_lots if lots is None else lots
         if lots <= 0:
             raise ValueError("手数必须为正数")
-        has_open = any(t.action in _OPEN_ACTIONS for t in s.triggers)
-        if action in _OPEN_ACTIONS and has_open:
-            raise ValueError("已存在未触发的开仓触发单（每策略同时仅一张）")
-        same_close = any(t.action == action for t in s.triggers)
-        if same_close:
+        same_action = any(t.action == action for t in s.triggers)
+        if same_action and action in _OPEN_ACTIONS:
+            raise ValueError("该方向开仓触发单已存在（做空/做多可并存，同方向仅一张），请用「修改」改价")
+        if same_action:
             raise ValueError("该方向平仓触发单已存在")
         if action == TriggerAction.close_short and s.held_units >= 0:
             raise ValueError("无空头价差持仓，无法挂空平触发单")
         if action == TriggerAction.close_long and s.held_units <= 0:
             raise ValueError("无多头价差持仓，无法挂多平触发单")
-        if action in _OPEN_ACTIONS and abs(s.held_units) + lots > s.total_lots:
-            raise ValueError(
-                f"超出总份限制：已持仓 {abs(s.held_units)} 份 + 本次 {lots} 份 > 总份 {s.total_lots}"
-            )
+        if action in _OPEN_ACTIONS:
+            # 总份按净额校验（与交易所双向净仓一致）：对向开仓（含反向平仓）不占新额度
+            signed = lots if action == TriggerAction.open_long else -lots
+            after = round(s.held_units + signed, 6)
+            if abs(after) > s.total_lots:
+                raise ValueError(
+                    f"超出总份限制：成交后净持仓 {after:+g} 份 > 总份 {s.total_lots:g} 份")
         setattr(s, _MANUAL_FIELD[action], spread)  # 下单价保存进策略价差（行情退役后差价来源=人工）
         if companion_spread is not None:  # 开仓下单时对应平仓价一并保存（用户定稿）
             setattr(s, _CLOSE_COMPANION[action], companion_spread)
