@@ -31,6 +31,7 @@ export const useAppStore = defineStore("app", {
     trades: [],      // 腿部成交回报（T12 用）
     algos: [],       // 价差算法状态（T12 用）
     notices: [],
+    spreadQuotes: {},  // pair -> { short_open, long_open, live }（本地合成实时价差，填价参考）
     ctpState: "disconnected",
     ctpStep: "",  // 连接进度步骤（后端关键日志映射）
     selectedId: null,
@@ -82,6 +83,9 @@ export const useAppStore = defineStore("app", {
       listenPy("notice", (p) => {
         this.notices.push({ ...p, ts: Date.now() });
         if (this.notices.length > 50) this.notices.shift();
+      });
+      listenPy("spread", (p) => {  // 本地合成实时价差（0.5s 节流推送；停滞推 live:false）
+        this.spreadQuotes[p.pair] = p;
       });
       listenPy("conn-state", (p) => {
         if (p.kind === "ctp") {

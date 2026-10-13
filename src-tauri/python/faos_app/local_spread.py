@@ -30,20 +30,43 @@ class LocalSpreadFeed:
     """订阅策略两腿行情，tick 到达即合成价差并驱动触发监控。"""
 
     _logged_pairs: set = set()  # 每对仅记一次首帧（诊断：证明行情链路活着）
+    _PUSH_MIN_SEC = 0.5  # 实时价差显示节流：同一组合至多每 0.5s 推一次
 
-    def __init__(self, ctp, manager, monitor, portal=None):
+    def __init__(self, ctp, manager, monitor, portal=None, quote_pusher=None):
         self._ctp = ctp
         self._manager = manager
         self._monitor = monitor
         self._portal = portal
+        self._quote_pusher = quote_pusher  # (payload) 实时价差推送（可缺省）
         self._ticks: dict = {}
         self._last_valid: dict = {}  # pair -> 最近一次成功合成时刻
         self._noquote_warned: set = set()
+        self._push_at: dict = {}  # pair -> 上次推送时刻（节流）
+        self._pushed_live: set = set()  # 当前处于「已推实时价差」状态的组合
         self._timer_count = 0
         from vnpy.trader.event import EVENT_TICK, EVENT_TIMER
 
         ctp.event_engine.register(EVENT_TICK, self._wrap)
         ctp.event_engine.register(EVENT_TIMER, self._wrap_timer)
+
+    def _push_quote(self, pair: str, q) -> None:
+        """实时价差推送（节流 0.5s/组合）：填价参考显示用，与触发链路无关。"""
+        if self._quote_pusher is None:
+            return
+        import time as _time
+
+        now = _time.monotonic()
+        if now - self._push_at.get(pair, 0.0) < self._PUSH_MIN_SEC:
+            return
+        self._push_at[pair] = now
+        self._pushed_live.add(pair)
+        try:
+            self._quote_pusher({"pair": pair, "short_open": q.short_open,
+                                "long_open": q.long_open, "live": True})
+        except Exception as e:
+            from faos_app.log import log
+
+            log(f"FAOS_SPREAD_PUSH_FAIL {e}")
 
     def _wrap_timer(self, event) -> None:
         try:
@@ -82,6 +105,16 @@ class LocalSpreadFeed:
                 self._noquote_warned.add(s.pair)
                 self._manager.push.notice(
                     "warn", f"策略 #{s.id} {s.pair} 尚未收到两腿行情，触发单等待中")
+        # 实时价差显示：合成停滞超 30s 的组合推一次失效（前端显示 --），不重复推
+        for pair in list(self._pushed_live):
+            last = self._last_valid.get(pair)
+            if last is None or now - last > self._STALE_SEC:
+                self._pushed_live.discard(pair)
+                if self._quote_pusher is not None:
+                    try:
+                        self._quote_pusher({"pair": pair, "live": False})
+                    except Exception:
+                        pass
 
     def _leg_book_invalid(self, vt_symbol: str) -> bool:
         """该腿盘口无效（无 tick 或买/卖价为 0）。"""
@@ -137,4 +170,5 @@ class LocalSpreadFeed:
             if s.pair in self._noquote_warned:
                 self._noquote_warned.discard(s.pair)
                 self._manager.push.notice("info", f"{s.pair} 行情恢复，触发监控继续")
+            self._push_quote(s.pair, q)  # 实时价差显示（节流，不影响触发）
             self._monitor.on_spread(s.pair, q)

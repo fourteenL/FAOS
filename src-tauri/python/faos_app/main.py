@@ -73,7 +73,7 @@ def _build_services(settings: Settings, portal, pusher: Pusher) -> AppState:
         spread_service.start_watchdog(portal)  # 追价超时看门狗
 
         # 本地价差合成：两腿 tick → 四向价差 → 触发监控（替代原 MQTT 行情推送）
-        LocalSpreadFeed(ctp, manager, monitor, portal=portal)
+        LocalSpreadFeed(ctp, manager, monitor, portal=portal, quote_pusher=pusher.spread)
 
         from faos_app.leg_ops import LegOps
 

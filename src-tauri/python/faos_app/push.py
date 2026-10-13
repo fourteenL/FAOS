@@ -33,6 +33,10 @@ class Pusher:
     def notice(self, level: str, msg: str) -> None:
         self._emit("notice", {"level": level, "msg": msg})
 
+    def spread(self, payload: dict) -> None:
+        """实时合成价差（填价参考显示）：{pair, short_open, long_open, live}。"""
+        self._emit("spread", payload)
+
     def position(self, data: dict) -> None:
         self._emit("position", data)
 
