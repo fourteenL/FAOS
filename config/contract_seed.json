@@ -33,7 +33,7 @@
     "ag2708.SHFE",
     "ag2709.SHFE"
    ],
-   "dominant": "ag2612"
+   "dominant": "ag2611"
   },
   "al": {
    "contracts": [
@@ -186,7 +186,7 @@
     "ni2708.SHFE",
     "ni2709.SHFE"
    ],
-   "dominant": "ni2612"
+   "dominant": "ni2611"
   },
   "op": {
    "contracts": [
