@@ -34,6 +34,7 @@ class TriggerMonitor:
     def __init__(self, manager, executor: Optional[SpreadExecutor] = None):
         self._manager = manager
         self._executor = executor
+        self._exec_fail_warned: set = set()  # (strategy_id, action) 告警一次防每帧刷屏
 
     def set_executor(self, executor: SpreadExecutor) -> None:
         self._executor = executor
@@ -56,7 +57,16 @@ class TriggerMonitor:
                 from faos_app.log import log
 
                 log(f"FAOS_TRIGGER_FIRED #{s.id} {s.pair} {t.action.value}@{t.spread}")
-                algoid = self._executor.execute(s, t)
+                try:
+                    algoid = self._executor.execute(s, t)
+                except Exception as e:  # 风控拒单等业务异常：只影响本策略，不中断当帧
+                    log(f"FAOS_TRIGGER_EXEC_FAIL #{s.id} {t.action.value} {e}")
+                    key = (s.id, t.action.value)
+                    if key not in self._exec_fail_warned:
+                        self._exec_fail_warned.add(key)
+                        self._manager.push.notice("error", f"策略 #{s.id} 触发执行失败：{e}")
+                    continue  # 触发单保留；参数调整/风控解除后下一帧自动重试
+                self._exec_fail_warned.discard((s.id, t.action.value))  # 成功后重置告警（可再次提醒）
                 if algoid is None:
                     log(f"FAOS_TRIGGER_DEFERRED #{s.id} 执行器返回 None（CTP 未就绪），触发单保留")
                     continue  # CTP 未就绪：触发单保留，状态不变

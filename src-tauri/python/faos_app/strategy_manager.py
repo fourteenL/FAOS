@@ -222,6 +222,7 @@ class StrategyManager:
             hook(s)
         s.triggers = []
         s.active_algos = []
+        s.executing_action = None  # DONE 事件可能晚到/永不到，方向不残留幻影
         s.status = StrategyStatus.active  # 一律保持在线（pending 期间停止同样转 active，回执由严格同步处理）
         self._store.update(s)
         self._push.strategy(s)
@@ -280,6 +281,7 @@ class StrategyManager:
         for hook in self.on_direction_stop_hooks:
             hook(s, side)
         if not s.active_algos:
+            s.executing_action = None  # 本侧算法停后无其它算法 → 方向交还 held_units 驱动
             s.status = StrategyStatus.armed if s.triggers else StrategyStatus.active
         self._store.update(s)
         self._push.strategy(s)
@@ -371,6 +373,7 @@ class StrategyManager:
                 changed = True
             if s.active_algos:
                 s.active_algos = []
+                s.executing_action = None  # 重启后 DONE 永远不会来，方向不残留幻影
                 self._push.notice(
                     "warn",
                     f"策略 #{s.id} 重启前存在未完成价差单，已清除算法状态，请人工核对持仓",

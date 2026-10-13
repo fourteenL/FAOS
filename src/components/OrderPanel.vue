@@ -37,9 +37,6 @@ const tick = computed(() => (s.value ? store.tickOf(s.value) : 1));
 const step = computed(() => tick.value);
 const precision = computed(() => tickPrecision(tick.value));
 
-// 当前策略存活触发单的动作集合（有挂单的字段保持下单价格，直到该单停止/触发）
-const liveActions = computed(() => new Set((s.value?.triggers || []).map((t) => t.action)));
-
 
 // 差价来源=人工：面板预填策略保存的价；下单时后端自动保存新价回策略。
 // 脏字段保护：用户改过的输入不被策略事件重置——追价期每次 A 腿撤单都推策略更新
