@@ -158,6 +158,14 @@ async function cancelTrigger(triggerId) {
 function fmt(v) {
   return v == null ? "--" : Number(v).toFixed(2);
 }
+
+const ACTION_ZH = { open_short: "做空开", open_long: "做多开", close_short: "空平", close_long: "多平" };
+
+// 平仓=反向开仓（用户定稿 2026-10-13）：持仓为反向的开仓挂单标注（平仓）
+const isClosingOrder = (t) => {
+  const held = s.value?.held_units || 0;
+  return (held < 0 && t.action === "open_long") || (held > 0 && t.action === "open_short");
+};
 </script>
 
 <template>
@@ -198,7 +206,7 @@ function fmt(v) {
       <div v-if="!s.triggers.length" class="muted">无挂单</div>
       <div v-for="t in s.triggers" :key="t.trigger_id" class="row">
         <span>
-          {{ { open_short: "做空开", open_long: "做多开", close_short: "空平", close_long: "多平" }[t.action] }}
+          {{ ACTION_ZH[t.action] }}{{ isClosingOrder(t) ? "（平仓）" : "" }}
           差价 {{ fmt(t.spread) }} × {{ t.lots }} 份
         </span>
         <a @click="cancelTrigger(t.trigger_id)">取消</a>

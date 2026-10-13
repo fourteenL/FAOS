@@ -8,11 +8,15 @@ const store = useAppStore();
 const market = marketClock();  // 交易时段指示：开盘策略号绿/休市红（每 30 秒刷新）
 onUnmounted(market.stop);
 
-// 方向标签：持仓 ∨ 已挂开仓单 ∨ 执行中（挂单→执行→成交全程方向可见——用户定稿）
+// 方向标签：平仓优先识别（2026-10-13 用户定稿：持空+多开单=平仓中，不再显示歧义的"空多"）
 function directionOf(row) {
   const held = row.held_units || 0;
   const armed = (action) => (row.triggers || []).some((t) => t.action === action);
   const exec = row.executing_action;
+  if (held < 0 && (armed("open_long") || exec === "open_long"))
+    return { label: "做空·平仓中", cls: "dir-active" };
+  if (held > 0 && (armed("open_short") || exec === "open_short"))
+    return { label: "做多·平仓中", cls: "dir-active" };
   const hasLong = held > 0 || armed("open_long") || exec === "open_long";
   const hasShort = held < 0 || armed("open_short") || exec === "open_short";
   if (hasLong && hasShort) return { label: "空多", cls: "dir-active" };

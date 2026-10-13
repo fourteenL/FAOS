@@ -30,11 +30,21 @@ class SpreadExecutor(Protocol):
         """返回 algoid；返回 None 表示 CTP 未就绪（触发单保留）。"""
 
 
+_SIDE_OF = {
+    TriggerAction.open_short: "short",
+    TriggerAction.close_long: "short",
+    TriggerAction.open_long: "long",
+    TriggerAction.close_short: "long",
+}
+
+
 class TriggerMonitor:
     def __init__(self, manager, executor: Optional[SpreadExecutor] = None):
         self._manager = manager
         self._executor = executor
         self._exec_fail_warned: set = set()  # (strategy_id, action) 告警一次防每帧刷屏
+        self._running_sides: dict[int, set] = {}  # strategy_id -> 运行中算法方向集
+        self._algo_side: dict[str, str] = {}      # algoid -> 方向（完成时回退）
 
     def set_executor(self, executor: SpreadExecutor) -> None:
         self._executor = executor
@@ -43,9 +53,16 @@ class TriggerMonitor:
         for s in self._manager.store.list():
             if s.pair != pair or not s.triggers:
                 continue
-            if s.status not in (StrategyStatus.active, StrategyStatus.armed):
-                continue  # I2: executing/其它状态不触发（开仓算法未完成时不对零持仓平仓）
+            running = self._running_sides.get(s.id, set())
             for t in list(s.triggers):
+                if s.status not in (StrategyStatus.active, StrategyStatus.armed):
+                    if s.status != StrategyStatus.executing:
+                        continue
+                    # executing：仅对向开仓放行（2026-10-13 用户定稿）；
+                    # 同向与平仓仍等算法完成（I2：开仓未完成不对零/漂移持仓平仓）
+                    if t.action not in (TriggerAction.open_short, TriggerAction.open_long) \
+                            or _SIDE_OF[t.action] in running:
+                        continue
                 if t.action == TriggerAction.close_short and s.held_units >= 0:
                     continue  # 状态漂移兜底：无空头持仓不执行空平
                 if t.action == TriggerAction.close_long and s.held_units <= 0:
@@ -75,10 +92,19 @@ class TriggerMonitor:
                 s.active_algos.append(algoid)
                 s.executing_action = t.action.value  # 执行中方向可见（触发单已消费、held 未更新）
                 s.status = StrategyStatus.executing
+                self._running_sides.setdefault(s.id, set()).add(_SIDE_OF[t.action])
+                self._algo_side[algoid] = _SIDE_OF[t.action]
                 self._manager.store.update(s)
                 self._manager.push.strategy(s)
 
     def on_algo_finished(self, strategy_id: int, algoid: str) -> None:
+        side = self._algo_side.pop(algoid, None)
+        if side:
+            sides = self._running_sides.get(strategy_id)
+            if sides:
+                sides.discard(side)
+                if not sides:
+                    del self._running_sides[strategy_id]
         s = self._manager.store.get(strategy_id)
         if s is None:
             return

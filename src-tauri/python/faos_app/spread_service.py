@@ -49,6 +49,7 @@ class SpreadService:
         self._algo_started: dict[str, float] = {}  # I8 看门狗: algoid -> 启动时刻
         self._algo_direction: dict[str, object] = {}  # algoid -> Direction（方向停止用）
         self._algo_action: dict[str, object] = {}  # algoid -> TriggerAction（成功通知文案用）
+        self._algo_close_mark: dict[str, bool] = {}  # algoid -> 是否平仓单（反向开仓，通知文案用）
         self._algo_latest: dict[str, "AlgoItem"] = {}  # pair -> 最新算法快照（追价文案用）
         self._algo_wait_warned: set = set()  # pair -> 已告警（盘口停滞提醒一次性）
         if event_engine is not None:
@@ -158,6 +159,10 @@ class SpreadService:
             self._algo_started[algoid] = _time.monotonic()
             self._algo_direction[algoid] = _ACTION_DIRECTION[trigger.action]
             self._algo_action[algoid] = trigger.action
+            # 平仓=反向开仓（2026-10-13 用户定稿）：点燃时持仓为反向 → 完成通知用平仓文案
+            self._algo_close_mark[algoid] = (
+                (trigger.action == TriggerAction.open_long and strategy.held_units < 0)
+                or (trigger.action == TriggerAction.open_short and strategy.held_units > 0))
         return algoid or None
 
     def stop_algos(self, strategy: Strategy) -> None:
@@ -166,6 +171,7 @@ class SpreadService:
                 self._engine.stop_algo(algoid)
             self._algo_direction.pop(algoid, None)
             self._algo_action.pop(algoid, None)
+            self._algo_close_mark.pop(algoid, None)
         strategy.active_algos = []
 
     def stop_algos_direction(self, strategy: Strategy, side: str) -> None:
@@ -180,6 +186,7 @@ class SpreadService:
                 self._engine.stop_algo(algoid)
             self._algo_direction.pop(algoid, None)
             self._algo_action.pop(algoid, None)
+            self._algo_close_mark.pop(algoid, None)
             strategy.active_algos.remove(algoid)
 
     # -- 算法事件 ---------------------------------------------------------------
@@ -273,8 +280,14 @@ class SpreadService:
         self._algo_started.pop(item.algoid, None)
         self._algo_direction.pop(item.algoid, None)
         action = self._algo_action.pop(item.algoid, None)
+        closing = self._algo_close_mark.pop(item.algoid, False)
         if item.traded_volume > 0:
-            tpl = _ACTION_DONE_NOTICE.get(action, "价差算法完成（成交 {v:.0f} 份）")
+            if closing and action == TriggerAction.open_long:
+                tpl = "平空完成（买回 {v:.0f} 份）"
+            elif closing and action == TriggerAction.open_short:
+                tpl = "平多完成（卖出 {v:.0f} 份）"
+            else:
+                tpl = _ACTION_DONE_NOTICE.get(action, "价差算法完成（成交 {v:.0f} 份）")
             self._push.notice("success", tpl.format(v=item.traded_volume))
         from faos_app.log import log
 

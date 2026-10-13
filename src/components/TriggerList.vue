@@ -11,9 +11,13 @@ const rows = computed(() => {
   const out = [];
   for (const s of store.strategies) {
     for (const t of s.triggers || []) {
+      // 平仓=反向开仓（用户定稿 2026-10-13）：持仓为反向的开仓挂单标注（平仓）
+      const closing = (s.held_units < 0 && t.action === "open_long")
+        || (s.held_units > 0 && t.action === "open_short");
       out.push({
         id: s.id, pair: s.pair, action: t.action, spread: t.spread,
         lots: t.lots, trigger_id: t.trigger_id,
+        label: (ACTION_ZH[t.action] || t.action) + (closing ? "（平仓）" : ""),
       });
     }
   }
@@ -53,7 +57,7 @@ defineExpose({ open });
           <tr v-for="r in rows" :key="r.trigger_id">
             <td>#{{ r.id }}</td>
             <td class="mono">{{ r.pair }}</td>
-            <td>{{ ACTION_ZH[r.action] || r.action }}</td>
+            <td>{{ r.label }}</td>
             <td class="mono">{{ r.spread }}</td>
             <td>{{ r.lots }}</td>
             <td><a style="color: #cf1322" @click="cancel(r)">取消</a></td>

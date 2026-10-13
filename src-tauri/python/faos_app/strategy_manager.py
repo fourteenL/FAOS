@@ -397,7 +397,11 @@ class StrategyManager:
                 self._push.strategy(s)
 
     def reconcile_holdings(self, ctp) -> None:
-        """CTP 就绪后以实际持仓校正 held_units（未配对敞口不计入份数）。"""
+        """CTP 就绪后核对账户实际持仓 vs 策略归属持仓（按各策略自身成交记录推导）。
+
+        2026-10-13 用户定稿：告警化，不改写 held_units——全账户 min 配对会把
+        手动交易/其他终端的仓位误归属给策略（共享主力腿）。策略持仓唯一事实源
+        =自身算法成交累计；差异只弹告警点名腿与手数，人工核对。"""
         from faos_app.spread_service import vt_symbol_of
 
         def side(sym, want):
@@ -409,20 +413,30 @@ class StrategyManager:
                     total += p.volume
             return total
 
+        expected: dict = {}  # (vt_symbol, long/short) -> 期望手数（策略自身成交推导）
         for s in self._store.list():
+            vol = abs(s.held_units) * (s.single_lots or 1)
+            if vol <= 0:
+                continue
             a, b = vt_symbol_of(s.leg_a), vt_symbol_of(s.leg_b)
-            long_units = min(side(a, "long"), side(b, "short"))
-            short_units = min(side(a, "short"), side(b, "long"))
-            lots = s.single_lots or 1
-            held = round(float(long_units - short_units) / lots, 6)
-            if held != s.held_units:
-                s.held_units = held
-                self._store.update(s)
-                self._push.strategy(s)
-                self._push.notice(
-                    "info",
-                    f"策略 #{s.id} 持仓校正为 {abs(held)} 份（{'空头价差' if held < 0 else '多头价差' if held > 0 else '无持仓'}）",
-                )
+            a_side, b_side = ("short", "long") if s.held_units < 0 else ("long", "short")
+            expected[(a, a_side)] = expected.get((a, a_side), 0) + vol
+            expected[(b, b_side)] = expected.get((b, b_side), 0) + vol
+
+        symbols = {sym for sym, _ in expected}
+        symbols |= {p.vt_symbol for p in ctp.get_positions() if p.volume}
+        diffs = []
+        for sym in sorted(symbols):
+            for d, cn in (("long", "多"), ("short", "空")):
+                delta = side(sym, d) - expected.get((sym, d), 0)
+                if abs(delta) > 1e-6:
+                    diffs.append(f"{sym} {cn}{delta:+.0f} 手")
+        if diffs:
+            self._push.notice(
+                "warn",
+                "账户持仓与策略记录不一致（可能为手动交易/其他终端/中断残留）："
+                + "、".join(diffs)
+                + "。策略持仓以自身成交为准，请人工核对。")
 
     # -- 行情驱动 -------------------------------------------------------------
 
