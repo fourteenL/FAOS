@@ -14,12 +14,45 @@ const form = reactive({ slip_a: 0, slip_b: 100, order_type_a: "挂价", order_ty
 const risk = reactive({ max_cancels_a: 2000 });
 const lots = reactive({ single: 1, total: 10 });
 const legPos = ref(null);  // A/B 腿持仓快照（今昨拆分，10s 轮询）
+// 平到目标：输入框预填当前持仓，改小的差额即平仓量（null=未同步，按钮前置空不可点）
+const tgt = reactive({
+  A: { long_today: null, long_yd: null, short_today: null, short_yd: null },
+  B: { long_today: null, long_yd: null, short_today: null, short_yd: null },
+});
+
+function prefillTargets() {
+  for (const leg of ["A", "B"]) {
+    const snap = legPos.value?.[`leg_${leg.toLowerCase()}`];
+    if (!snap) continue;
+    for (const k of ["long_today", "long_yd", "short_today", "short_yd"]) {
+      if (tgt[leg][k] == null) tgt[leg][k] = snap[k] ?? 0;  // 用户改过的值不覆盖
+    }
+  }
+}
+
+async function closeLeg(leg) {
+  const t = tgt[leg];
+  if (Object.values(t).some((v) => v == null)) {
+    message.warning("持仓数据未同步，稍候再试");
+    return;
+  }
+  try {
+    const r = await store.closeLegTarget(s.value.id, leg, { ...t });
+    const parts = (r.sent || []).map((x) => `${x.direction}${x.volume}手·${x.offset}`).join("、");
+    message.success(`已发平仓委托：${parts || "无"}`);
+    for (const k of Object.keys(t)) t[k] = null;  // 重置让下次轮询重新预填
+    refreshLegs();
+  } catch (e) {
+    message.error(String(e));
+  }
+}
 
 let legTimer = null;
 async function refreshLegs() {
   if (!s.value) return;
   try {
     legPos.value = await store.refreshLegOrders(s.value.id);
+    prefillTargets();
   } catch (e) {
     legPos.value = null;  /* CTP 未连接时保持空 */
   }
@@ -86,11 +119,6 @@ async function removeStrategy() {
   }
 }
 
-// A/B 腿今昨仓一行字（上期所平仓需区分平今/平昨；10s 轮询刷新）
-function legLine(leg) {
-  if (!leg) return "多 今-/昨-　空 今-/昨-（未连接）";
-  return `多 今${leg.long_today ?? 0}/昨${leg.long_yd ?? 0}　空 今${leg.short_today ?? 0}/昨${leg.short_yd ?? 0}`;
-}
 </script>
 
 <template>
@@ -135,17 +163,34 @@ function legLine(leg) {
       </div>
       <p class="hint">A 腿默认挂价排队（滑点 0）；B 腿默认对手价 + 100 跳滑点对冲。市价以「对手价 + 滑点」限价实现。风控：A 腿累计撤单 {{ s.cancel_count_a }} / 上限 {{ risk.max_cancels_a }}，触限自动停止策略并撤全部挂单。</p>
 
-      <a-divider orientation="left" plain class="div">A/B 腿持仓（今 / 昨）</a-divider>
+      <a-divider orientation="left" plain class="div">A/B 腿持仓（今 / 昨）——改小目标数点「平到目标」</a-divider>
       <div class="grid">
         <div class="field">
           <span>A腿 {{ legPos?.leg_a?.symbol || "--" }}</span>
-          <span class="hint">{{ legLine(legPos?.leg_a) }}</span>
+          <div class="leg-close">
+            <span class="hint">多</span>
+            今<a-input-number v-model:value="tgt.A.long_today" :min="0" size="small" style="width: 52px" />
+            昨<a-input-number v-model:value="tgt.A.long_yd" :min="0" size="small" style="width: 52px" />
+            <span class="hint">空</span>
+            今<a-input-number v-model:value="tgt.A.short_today" :min="0" size="small" style="width: 52px" />
+            昨<a-input-number v-model:value="tgt.A.short_yd" :min="0" size="small" style="width: 52px" />
+            <a-button size="small" danger @click="closeLeg('A')">平到目标</a-button>
+          </div>
         </div>
         <div class="field">
           <span>B腿 {{ legPos?.leg_b?.symbol || "--" }}</span>
-          <span class="hint">{{ legLine(legPos?.leg_b) }}</span>
+          <div class="leg-close">
+            <span class="hint">多</span>
+            今<a-input-number v-model:value="tgt.B.long_today" :min="0" size="small" style="width: 52px" />
+            昨<a-input-number v-model:value="tgt.B.long_yd" :min="0" size="small" style="width: 52px" />
+            <span class="hint">空</span>
+            今<a-input-number v-model:value="tgt.B.short_today" :min="0" size="small" style="width: 52px" />
+            昨<a-input-number v-model:value="tgt.B.short_yd" :min="0" size="small" style="width: 52px" />
+            <a-button size="small" danger @click="closeLeg('B')">平到目标</a-button>
+          </div>
         </div>
       </div>
+      <p class="hint">目标数预填当前持仓；改小多少平多少（对手价立即成交取向，今仓平今/昨仓平昨），只平不开。此为单腿手动管理，不经价差算法；平仓后账户与策略持仓差异会由登录对账提醒。</p>
 
       <a-divider orientation="left" plain class="div">下单份数</a-divider>
       <div class="grid">

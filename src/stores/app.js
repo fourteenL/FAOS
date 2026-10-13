@@ -193,6 +193,9 @@ export const useAppStore = defineStore("app", {
     async refreshLegOrders(id) {
       return call("get_leg_orders", { strategy_id: id });
     },
+    async closeLegTarget(id, leg, targets) {
+      return call("close_leg_target", { strategy_id: id, leg, ...targets });
+    },
     async cancelLegOrders(id, leg) {
       return call("cancel_leg_orders", { strategy_id: id, leg });
     },

@@ -72,6 +72,13 @@ class LegBody(IdBody):
     leg: str  # "A" | "B"
 
 
+class CloseLegTargetBody(LegBody):
+    long_today: Optional[float] = None
+    long_yd: Optional[float] = None
+    short_today: Optional[float] = None
+    short_yd: Optional[float] = None  # 今昨仓管理：目标持仓（未填项不动，只平不开）
+
+
 class LoginBody(BaseModel):
     ctp_account: str
     ctp_password: str
@@ -319,6 +326,16 @@ async def cancel_leg_orders(body: LegBody, state: Annotated[AppState, State()]) 
         return CancelLegResp(cancelled=0)
     return _guard(state, lambda: CancelLegResp(
         cancelled=state.leg_ops.cancel_leg(body.strategy_id, body.leg)))
+
+
+@commands.command()
+async def close_leg_target(body: CloseLegTargetBody, state: Annotated[AppState, State()]) -> DictResp:
+    if state.leg_ops is None:
+        raise ValueError("CTP 未初始化")
+    return _guard(state, lambda: DictResp(state.leg_ops.close_leg_to_target(
+        body.strategy_id, body.leg,
+        {"long_today": body.long_today, "long_yd": body.long_yd,
+         "short_today": body.short_today, "short_yd": body.short_yd})))
 
 
 @commands.command()

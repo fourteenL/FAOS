@@ -333,3 +333,28 @@ class CtpService:
             return self.main_engine.get_engine("oms")
         except Exception:
             return None
+
+    def get_tick(self, vt_symbol: str):
+        """OMS 最新 tick（单腿平仓定价用）。"""
+        oms = self._oms()
+        return oms.get_tick(vt_symbol) if oms else None
+
+    def send_leg_order(self, vt_symbol: str, direction, offset,
+                       price: float, volume: float) -> str:
+        """单腿直接限价委托（今昨仓管理平仓用，绕过价差算法）。返回 vt_orderid。"""
+        from vnpy.trader.constant import OrderType
+        from vnpy.trader.object import OrderRequest
+
+        if self.main_engine is None:
+            raise ValueError("CTP 未连接，无法下单")
+        symbol, _, exchange = vt_symbol.partition(".")
+        req = OrderRequest(
+            symbol=symbol,
+            exchange=Exchange(exchange or "SHFE"),
+            direction=direction,
+            offset=offset,
+            type=OrderType.LIMIT,
+            price=price,
+            volume=volume,
+        )
+        return self.main_engine.send_order(req, "CTP")
