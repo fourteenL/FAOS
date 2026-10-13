@@ -1,5 +1,6 @@
 """策略管理器：创建/订阅/删除/停止/触发单挂管（行情订阅=本地 CTP 腿订阅，服务端行情链路已退役）。"""
 
+import re
 from datetime import datetime
 from typing import Callable, Optional
 from uuid import uuid4
@@ -9,6 +10,11 @@ from faos_app.store import StrategyStore
 
 _OPEN_ACTIONS = {TriggerAction.open_short, TriggerAction.open_long}
 _LIQUID_TOP_N = 6  # 活跃月份截取数（持仓量前 N 参与组合；远月无报价=价差无法合成）
+_SYMBOL_RE = re.compile(r"^[a-zA-Z]{1,3}\d{3,4}$")  # 合约号=品种字母+月号（ag2706；裸 2706 无行情）
+
+
+def _valid_symbol(sym: str) -> bool:
+    return bool(_SYMBOL_RE.match(sym))
 
 
 def _filter_liquid_months_impl(product, matched, oi_hint):
@@ -86,6 +92,10 @@ class StrategyManager:
         leg_a, leg_b = leg_a.strip(), leg_b.strip()
         if not leg_a or not leg_b or leg_a == leg_b:
             raise ValueError("合约对无效：两腿必须不同且非空")
+        for leg in (leg_a, leg_b):
+            if not _valid_symbol(leg):
+                raise ValueError(
+                    f"合约号 {leg} 无效：应为品种字母+月号，如 ag2706（漏品种前缀则永无行情，挂单永不触发）")
         if "&" in leg_a or "&" in leg_b:
             raise ValueError("合约号不能包含 &")
         if self._find_by_pair(f"{leg_a}&{leg_b}") is not None:
@@ -309,6 +319,22 @@ class StrategyManager:
     def place_trigger(self, strategy_id: int, action: TriggerAction, spread: float,
                       lots: Optional[float] = None,
                       companion_spread: Optional[float] = None) -> Trigger:
+        """挂触发单；被拒（重复/超总份/无持仓等）时写 FAOS_TRIGGER_REJECT 日志再抛出。
+
+        2026-10-13 实测教训：用户平仓被拒但 faos.log 无痕迹，问题无法定位——
+        被拒的挂单必须留证据。"""
+        try:
+            return self._place_trigger(strategy_id, action, spread, lots, companion_spread)
+        except ValueError as e:
+            from faos_app.log import log
+
+            log(f"FAOS_TRIGGER_REJECT #{strategy_id} {action.value}@{spread} "
+                f"lots={lots if lots is not None else '默认'} {e}")
+            raise
+
+    def _place_trigger(self, strategy_id: int, action: TriggerAction, spread: float,
+                       lots: Optional[float] = None,
+                       companion_spread: Optional[float] = None) -> Trigger:
         s = self._require(strategy_id)
         if s.status == StrategyStatus.stopped:
             raise ValueError("策略已停止，无法挂触发单")
@@ -391,6 +417,13 @@ class StrategyManager:
                 self._push.notice(
                     "warn", f"策略 #{s.id} {s.pair} 含当月交割合约（盘口枯竭），已自动清理；"
                     "如需该品种请重新订阅（新版自动剔除死腿月份）")
+                continue
+            if not (_valid_symbol(s.leg_a) and _valid_symbol(s.leg_b)):
+                # 存量非法合约号（裸月号无品种前缀，永无行情）——启动即清理（2026-10-13 实测踩坑）
+                self._store.remove(s.id)
+                self._push.strategy_deleted(s.id)
+                self._push.notice(
+                    "warn", f"策略 #{s.id} {s.pair} 合约号无效（缺品种字母前缀，永无行情），已自动清理")
                 continue
             if changed:
                 self._store.update(s)
