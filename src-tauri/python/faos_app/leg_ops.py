@@ -32,14 +32,29 @@ class LegOps:
             sym = vt_symbol_of(getattr(s, _LEGS[tag]))
             leg_orders = [order_to_dict(o) for o in orders if o.vt_symbol == sym]
             leg_trades = [trade_to_dict(t) for t in trades if t.vt_symbol == sym]
-            long_pos = sum(p.volume for p in positions if p.vt_symbol == sym and "long" in _dir(p))
-            short_pos = sum(p.volume for p in positions if p.vt_symbol == sym and "short" in _dir(p))
+            long_pos = short_pos = long_yd = short_yd = 0
+            for p in positions:
+                if p.vt_symbol != sym:
+                    continue
+                yd = getattr(p, "yd_volume", 0) or 0
+                d = _dir(p)
+                if "long" in d:
+                    long_pos += p.volume
+                    long_yd += yd
+                elif "short" in d:
+                    short_pos += p.volume
+                    short_yd += yd
             out[f"leg_{tag.lower()}"] = {
                 "symbol": sym,
                 "orders": leg_orders,
                 "trades_recent": leg_trades,
                 "long_pos": float(long_pos),
                 "short_pos": float(short_pos),
+                # 今昨拆分（上期所平仓需区分平今/平昨；yd_volume 来自 CTP 持仓日期）
+                "long_today": float(long_pos - long_yd),
+                "long_yd": float(long_yd),
+                "short_today": float(short_pos - short_yd),
+                "short_yd": float(short_yd),
                 "chasing": chasing if tag == "A" else None,  # 主动腿 A 才有追价
             }
         return out

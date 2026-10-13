@@ -47,6 +47,8 @@ class SpreadService:
         self._portal = portal
         self._spreads: dict[str, SpreadData] = {}
         self._algo_started: dict[str, float] = {}  # I8 看门狗: algoid -> 启动时刻
+        self._strategy_stopper = None  # 触限急停回调（main 注入 manager.stop）
+        self._cap_halted: set = set()  # 已触限急停的策略（新算法启动成功后复位）
         self._algo_direction: dict[str, object] = {}  # algoid -> Direction（方向停止用）
         self._algo_action: dict[str, object] = {}  # algoid -> TriggerAction（成功通知文案用）
         self._algo_close_mark: dict[str, bool] = {}  # algoid -> 是否平仓单（反向开仓，通知文案用）
@@ -126,6 +128,42 @@ class SpreadService:
         self._ctp.subscribe_symbols([leg_a, leg_b])
         return spread
 
+    def set_strategy_stopper(self, fn) -> None:
+        """触限急停回调（main 注入 manager.stop：撤触发单+停算法+状态复位）。"""
+        self._strategy_stopper = fn
+
+    def _halt_on_cap(self, strategy: Strategy) -> None:
+        """A 腿撤单触限急停（2026-10-14 用户定稿）：只弹窗拒新单不够——追价挂单
+        还留在柜台；须马上停止策略并撤销两腿全部活动委托（他策略的挂单不动）。"""
+        if strategy.id in self._cap_halted:
+            return
+        self._cap_halted.add(strategy.id)
+        from faos_app.log import log
+
+        log(f"FAOS_CANCEL_CAP_HALT #{strategy.id} {strategy.pair} "
+            f"撤单 {strategy.cancel_count_a}/{strategy.max_cancels_a}")
+        if self._strategy_stopper is not None:
+            try:
+                self._strategy_stopper(strategy.id)
+            except Exception as e:
+                log(f"FAOS_CANCEL_CAP_HALT_FAIL #{strategy.id} {e}")
+        cancelled = 0
+        for leg in (strategy.leg_a, strategy.leg_b):
+            sym = vt_symbol_of(leg)
+            for o in list(self._ctp.get_all_active_orders()):
+                if o.vt_symbol != sym:
+                    continue
+                try:
+                    self._ctp.cancel_order(o.vt_orderid)
+                    cancelled += 1
+                except Exception:
+                    pass
+        self._push.notice(
+            "error",
+            f"策略 #{strategy.id} A 腿撤单达上限 {strategy.max_cancels_a}，"
+            f"已停止策略并撤销 {cancelled} 笔挂单（持仓保留）；"
+            "请检查行情/追价参数后调大上限再重新挂单")
+
     # -- SpreadExecutor -------------------------------------------------------
 
     def execute(self, strategy: Strategy, trigger) -> Optional[str]:
@@ -159,6 +197,7 @@ class SpreadService:
             self._algo_started[algoid] = _time.monotonic()
             self._algo_direction[algoid] = _ACTION_DIRECTION[trigger.action]
             self._algo_action[algoid] = trigger.action
+            self._cap_halted.discard(strategy.id)  # 上限调大后恢复交易：急停标记复位
             # 平仓=反向开仓（2026-10-13 用户定稿）：点燃时持仓为反向 → 完成通知用平仓文案
             self._algo_close_mark[algoid] = (
                 (trigger.action == TriggerAction.open_long and strategy.held_units < 0)
@@ -252,8 +291,7 @@ class SpreadService:
             self._store.update(s)
             self._push.strategy(s)
             if s.cancel_count_a >= s.max_cancels_a:
-                self._push.notice("warn",
-                                  f"策略 #{s.id} A 腿撤单已达上限 {s.max_cancels_a}，后续下单将被拒绝")
+                self._halt_on_cap(s)
             return
 
     def _process_spread_algo(self, item: AlgoItem) -> None:

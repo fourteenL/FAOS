@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onUnmounted, reactive, ref, watch } from "vue";
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from "vue";
 import { message } from "ant-design-vue";
 import { useAppStore } from "../stores/app.js";
 import { marketClock } from "../utils/market_open.js";
@@ -13,6 +13,21 @@ const ORDER_TYPES = ["对手价", "挂价", "最新价", "市价"];
 const form = reactive({ slip_a: 0, slip_b: 100, order_type_a: "挂价", order_type_b: "对手价" });
 const risk = reactive({ max_cancels_a: 2000 });
 const lots = reactive({ single: 1, total: 10 });
+const legPos = ref(null);  // A/B 腿持仓快照（今昨拆分，10s 轮询）
+
+let legTimer = null;
+async function refreshLegs() {
+  if (!s.value) return;
+  try {
+    legPos.value = await store.refreshLegOrders(s.value.id);
+  } catch (e) {
+    legPos.value = null;  /* CTP 未连接时保持空 */
+  }
+}
+onMounted(() => {
+  legTimer = setInterval(refreshLegs, 10000);
+});
+onUnmounted(() => clearInterval(legTimer));
 
 watch(
   () => s.value?.id,
@@ -25,6 +40,8 @@ watch(
     risk.max_cancels_a = s.value.max_cancels_a ?? 2000;
     lots.single = s.value.single_lots ?? 1;
     lots.total = s.value.total_lots ?? 10;
+    legPos.value = null;
+    refreshLegs();
   },
   { immediate: true }
 );
@@ -68,6 +85,12 @@ async function removeStrategy() {
     message.error(String(e));
   }
 }
+
+// A/B 腿今昨仓一行字（上期所平仓需区分平今/平昨；10s 轮询刷新）
+function legLine(leg) {
+  if (!leg) return "多 今-/昨-　空 今-/昨-（未连接）";
+  return `多 今${leg.long_today ?? 0}/昨${leg.long_yd ?? 0}　空 今${leg.short_today ?? 0}/昨${leg.short_yd ?? 0}`;
+}
 </script>
 
 <template>
@@ -110,7 +133,19 @@ async function removeStrategy() {
         </div>
         <a-button size="small" type="primary" @click="saveConfig">保存参数</a-button>
       </div>
-      <p class="hint">A 腿默认挂价排队（滑点 0）；B 腿默认对手价 + 100 跳滑点对冲。市价以「对手价 + 滑点」限价实现。风控：A 腿累计撤单 {{ s.cancel_count_a }} / 上限 {{ risk.max_cancels_a }}，超限拒挂新单。</p>
+      <p class="hint">A 腿默认挂价排队（滑点 0）；B 腿默认对手价 + 100 跳滑点对冲。市价以「对手价 + 滑点」限价实现。风控：A 腿累计撤单 {{ s.cancel_count_a }} / 上限 {{ risk.max_cancels_a }}，触限自动停止策略并撤全部挂单。</p>
+
+      <a-divider orientation="left" plain class="div">A/B 腿持仓（今 / 昨）</a-divider>
+      <div class="grid">
+        <div class="field">
+          <span>A腿 {{ legPos?.leg_a?.symbol || "--" }}</span>
+          <span class="hint">{{ legLine(legPos?.leg_a) }}</span>
+        </div>
+        <div class="field">
+          <span>B腿 {{ legPos?.leg_b?.symbol || "--" }}</span>
+          <span class="hint">{{ legLine(legPos?.leg_b) }}</span>
+        </div>
+      </div>
 
       <a-divider orientation="left" plain class="div">下单份数</a-divider>
       <div class="grid">
