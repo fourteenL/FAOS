@@ -1,5 +1,6 @@
 <script setup>
 import { computed, onUnmounted, ref, watch } from "vue";
+import { message } from "ant-design-vue";
 import { useAppStore } from "../stores/app.js";
 import { marketClock } from "../utils/market_open.js";
 
@@ -63,7 +64,6 @@ function manualOf(row, key) {
 
 // 全列定宽 + tableLayout=fixed：差价/仓位内容变化（单帧尖刺、涨跌加粗）不再引起整表重排
 const columns = computed(() => [
-  { title: "排序", key: "sort", width: 52, align: "center" },
   { title: "编号", dataIndex: "id", key: "id", width: 60, align: "center" },
   { title: "A合约", dataIndex: "leg_a", key: "leg_a", width: 78, align: "center" },
   { title: "B合约", dataIndex: "leg_b", key: "leg_b", width: 78, align: "center" },
@@ -82,12 +82,17 @@ const columns = computed(() => [
 ]);
 
 function onRow(row) {
+  const draggable = sortMode.value === "custom";  // 仅自定义模式可拖
   return {
     onClick: () => {
       store.select(row.id);
       emit("select", row.id);
     },
-    style: { cursor: "pointer", background: rowBg(row) },
+    draggable,
+    onDragstart: () => { dragId = row.id; },
+    onDragover: (e) => e.preventDefault?.(),
+    onDrop: () => dropOn(row.id),
+    style: { cursor: draggable ? "grab" : "pointer", background: rowBg(row) },
   };
 }
 
@@ -95,23 +100,48 @@ function cancelCountOf(row) {
   return store.cancelCount(row.pair, `${row.leg_a}.SHFE`);
 }
 
-// 自定义排序：↑↓ 与邻位交换（后端 move_strategy 返回更新列表，经事件/回执刷新行序）
-async function move(row, up) {
+// 排序：自定义（拖动行调序，sort_key 持久化）/ 合约升序 / 合约降序（2026-10-14 定稿）
+const sortMode = ref("custom");
+const rows = computed(() => {
+  const list = [...store.visibleStrategies];
+  if (sortMode.value === "asc")
+    list.sort((a, b) => String(a.leg_a).localeCompare(b.leg_a) || a.id - b.id);
+  else if (sortMode.value === "desc")
+    list.sort((a, b) => String(b.leg_a).localeCompare(a.leg_a) || b.id - a.id);
+  return list;  // custom：store 已按 sort_key 排
+});
+
+let dragId = null;
+async function dropOn(targetId) {
+  if (dragId == null || dragId === targetId || sortMode.value !== "custom") return;
+  const ids = rows.value.map((r) => r.id);
+  const from = ids.indexOf(dragId);
+  const to = ids.indexOf(targetId);
+  dragId = null;
+  if (from < 0 || to < 0) return;
+  ids.splice(to, 0, ids.splice(from, 1)[0]);  // 拖动行落到目标位置
   try {
-    await store.moveStrategy(row.id, up);
+    await store.reorderStrategies(ids);
   } catch (e) {
-    /* 失败经通知推送 */
+    message.error("排序保存失败: " + e);
   }
 }
 
 </script>
 
 <template>
+  <div class="bar">
+    <span class="muted">排序</span>
+    <button :class="{ tg: true, on: sortMode === 'custom' }" @click="sortMode = 'custom'">自定义</button>
+    <button :class="{ tg: true, on: sortMode === 'asc' }" @click="sortMode = 'asc'">合约↑</button>
+    <button :class="{ tg: true, on: sortMode === 'desc' }" @click="sortMode = 'desc'">合约↓</button>
+    <span class="muted">自定义模式可拖动行调序（长期保存）</span>
+  </div>
   <a-empty v-if="!store.visibleStrategies.length" description="暂无订阅的策略，请在「订阅管理」中创建并订阅" />
   <a-table
     v-else
     :columns="columns"
-    :data-source="store.visibleStrategies"
+    :data-source="rows"
     :pagination="false"
     size="small"
     row-key="id"
@@ -123,12 +153,6 @@ async function move(row, up) {
     </template>
     <template #bodyCell="{ column, record }">
       <template v-if="column.key === 'cancel_a'">{{ cancelCountOf(record) }}</template>
-      <template v-else-if="column.key === 'sort'">
-        <span class="sort-btns" @click.stop>
-          <a class="sb" title="上移" @click="move(record, true)">↑</a>
-          <a class="sb" title="下移" @click="move(record, false)">↓</a>
-        </span>
-      </template>
       <template v-else-if="column.key === 'id'">
         <span :class="market.value ? 'mkt-open' : 'mkt-closed'">#{{ record.id }}</span>
       </template>
@@ -176,7 +200,8 @@ async function move(row, up) {
   position: sticky; top: 0; z-index: 2;
   background: #fafafa; box-shadow: 0 1px 0 #f0f0f0;
 }
-.sort-btns { display: inline-flex; gap: 4px; }
-.sb { color: #1677ff; font-size: 12px; line-height: 1; cursor: pointer; user-select: none; }
-.sb:hover { color: #0958d9; }
+.bar { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; }
+.tg { border: 1px solid #d9d9d9; background: #fff; border-radius: 4px; font-size: 12px;
+  padding: 1px 8px; cursor: pointer; }
+.tg.on { color: #1677ff; border-color: #1677ff; }
 </style>

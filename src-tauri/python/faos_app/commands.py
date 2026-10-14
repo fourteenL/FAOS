@@ -72,8 +72,8 @@ class LegBody(IdBody):
     leg: str  # "A" | "B"
 
 
-class MoveBody(IdBody):
-    up: bool  # True=上移 False=下移（自定义排序，与邻位交换）
+class ReorderBody(BaseModel):
+    ordered_ids: list[int]  # 拖动后的完整顺序（按此重排 sort_key）
 
 
 class CloseLegTargetBody(LegBody):
@@ -396,9 +396,9 @@ async def stop_strategy_direction(body: StopDirectionBody, state: Annotated[AppS
 
 
 @commands.command()
-async def move_strategy(body: MoveBody, state: Annotated[AppState, State()]) -> StrategyListResp:
+async def reorder_strategies(body: ReorderBody, state: Annotated[AppState, State()]) -> StrategyListResp:
     return _guard(state, lambda: StrategyListResp(
-        [s.model_dump(mode="json") for s in state.manager.move_strategy(body.strategy_id, body.up)]))
+        [s.model_dump(mode="json") for s in state.manager.reorder_strategies(body.ordered_ids)]))
 
 
 @commands.command()

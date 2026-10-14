@@ -114,21 +114,21 @@ class StrategyManager:
     def _next_sort_key(self) -> float:
         return max((s.sort_key for s in self._store.list()), default=0) + 1
 
-    def move_strategy(self, strategy_id: int, up: bool) -> list[Strategy]:
-        """自定义排序（2026-10-14 用户定稿）：与上/下邻位交换 sort_key；边界不动作。"""
+    def reorder_strategies(self, ordered_ids: list) -> list[Strategy]:
+        """拖动排序（2026-10-14 定稿）：按传入顺序重排 sort_key（1..n）；
+        未包含的策略按原序附后，未知 id 忽略，空单不动。"""
         items = sorted(self._store.list(), key=lambda x: (x.sort_key, x.id))
-        idx = next((i for i, x in enumerate(items) if x.id == strategy_id), None)
-        if idx is None:
-            raise ValueError(f"策略不存在: {strategy_id}")
-        j = idx - 1 if up else idx + 1
-        if not 0 <= j < len(items):
-            return items  # 已在顶/底：不动作
-        a, b = items[idx], items[j]
-        a.sort_key, b.sort_key = b.sort_key, a.sort_key
-        self._store.update(a)
-        self._store.update(b)
-        self._push.strategy(a)
-        self._push.strategy(b)
+        by_id = {x.id: x for x in items}
+        known = [i for i in ordered_ids if i in by_id]
+        if not known:
+            return items
+        rest = [s.id for s in items if s.id not in set(known)]
+        for idx, sid in enumerate(known + rest, start=1):
+            st = by_id[sid]
+            if st.sort_key != idx:
+                st.sort_key = idx
+                self._store.update(st)
+                self._push.strategy(st)
         return sorted(self._store.list(), key=lambda x: (x.sort_key, x.id))
 
     def create_product(self, product: str, single_lots: float, total_lots: float) -> tuple[int, int]:

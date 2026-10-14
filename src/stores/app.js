@@ -199,8 +199,8 @@ export const useAppStore = defineStore("app", {
     async closeLegTarget(id, leg, targets) {
       return call("close_leg_target", { strategy_id: id, leg, ...targets });
     },
-    async moveStrategy(id, up) {
-      const list = await call("move_strategy", { strategy_id: id, up });
+    async reorderStrategies(orderedIds) {
+      const list = await call("reorder_strategies", { ordered_ids: orderedIds });
       for (const s of list || []) this.upsertStrategy(s);
     },
     async cancelLegOrders(id, leg) {
