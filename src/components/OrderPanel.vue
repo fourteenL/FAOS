@@ -150,34 +150,8 @@ async function modify(action) {
   }
 }
 
-// 平仓按钮（2026-10-14 用户实测踩坑：持空仓者在做空区找不到平仓入口，只能点到加仓启动）。
-// 语义等价：空平触发条件 short_cover≤X ≡ 反向多开触发 long_open≤X（同一个值），
-// 底层走反向开仓链路（净额归零、平仓字样通知全兼容），份数=当前持仓数（一键平净）。
-async function closePosition(side) {
-  const st = s.value;
-  const held = st?.held_units || 0;
-  const lots = Math.abs(held);
-  if (!lots) {
-    message.warning("无持仓可平");
-    return;
-  }
-  const spread = side === "short" ? form.close_short : form.close_long;
-  if (spread == null) {
-    message.warning(side === "short"
-      ? "请填写空平差价（当前多开价附近可尽快触发）"
-      : "请填写多平差价（当前空开价附近可尽快触发）");
-    return;
-  }
-  try {
-    await store.placeTrigger(st.id, {
-      action: side === "short" ? "open_long" : "open_short",
-      spread, lots,
-    });
-    message.success(`平仓单已挂出（${side === "short" ? "买回" : "卖出"} ${lots} 份，到价拆腿）`);
-  } catch (e) {
-    message.error(String(e));
-  }
-}
+// 平仓=反向开仓（用户定稿 2026-10-14 再确认：持多仓去做空区启动、持空仓去做多区启动，
+// 界面不加平仓按钮）；空平/多平框仅作伴随价记录与参考显示。
 
 // 停止按方向：撤本方向触发单 + 停本方向算法（挂单/执行互不影响另一方向），持仓保留
 async function stopCurrent(side) {
@@ -227,7 +201,6 @@ const isClosingOrder = (t) => {
         <div class="line">
           <label>空平差价</label>
           <a-input-number v-model:value="form.close_short" :step="step" :precision="precision" size="small" style="width: 90px" @change="markDirty('close_short')" />
-          <a-button size="small" danger :disabled="!(s.held_units < 0)" @click="closePosition('short')">平仓</a-button>
         </div>
       </div>
       <div class="zone">
@@ -243,7 +216,6 @@ const isClosingOrder = (t) => {
         <div class="line">
           <label>多平差价</label>
           <a-input-number v-model:value="form.close_long" :step="step" :precision="precision" size="small" style="width: 90px" @change="markDirty('close_long')" />
-          <a-button size="small" danger :disabled="!(s.held_units > 0)" @click="closePosition('long')">平仓</a-button>
         </div>
       </div>
     </div>
