@@ -178,6 +178,12 @@ class SpreadService:
             return None
         import time as _time
 
+        # 平仓=反向开仓（2026-10-13 定稿）：点燃时持仓为反向 → 平仓算法
+        closing = ((trigger.action == TriggerAction.open_long and strategy.held_units < 0)
+                   or (trigger.action == TriggerAction.open_short and strategy.held_units > 0))
+        # 策略隔离（2026-10-14 用户实证三问题同根：共享主力腿+净仓转换互相吃腿）：
+        # 开仓锁仓（OPEN 永不净转换→上期所双向持仓，各策略腿物理隔离，也避免
+        # 平今/平昨错配被柜台拒单）；反向平仓保持净仓（实际对冲本策略两腿）
         algoid: str = self._engine.start_algo(
             spread_name=strategy.pair,
             direction=_ACTION_DIRECTION[trigger.action],
@@ -185,7 +191,7 @@ class SpreadService:
             volume=trigger.lots,
             payup=self._algo.payup,
             interval=self._algo.interval,
-            lock=self._algo.lock,
+            lock=self._algo.lock or not closing,
             extra={
                 "slip_a": strategy.slip_a,
                 "slip_b": strategy.slip_b,
@@ -198,10 +204,7 @@ class SpreadService:
             self._algo_direction[algoid] = _ACTION_DIRECTION[trigger.action]
             self._algo_action[algoid] = trigger.action
             self._cap_halted.discard(strategy.id)  # 上限调大后恢复交易：急停标记复位
-            # 平仓=反向开仓（2026-10-13 用户定稿）：点燃时持仓为反向 → 完成通知用平仓文案
-            self._algo_close_mark[algoid] = (
-                (trigger.action == TriggerAction.open_long and strategy.held_units < 0)
-                or (trigger.action == TriggerAction.open_short and strategy.held_units > 0))
+            self._algo_close_mark[algoid] = closing
         return algoid or None
 
     def stop_algos(self, strategy: Strategy) -> None:
