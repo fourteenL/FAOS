@@ -72,6 +72,10 @@ class LegBody(IdBody):
     leg: str  # "A" | "B"
 
 
+class MoveBody(IdBody):
+    up: bool  # True=上移 False=下移（自定义排序，与邻位交换）
+
+
 class CloseLegTargetBody(LegBody):
     long_today: Optional[float] = None
     long_yd: Optional[float] = None
@@ -389,6 +393,12 @@ async def set_strategy_config(body: SetConfigBody, state: Annotated[AppState, St
 @commands.command()
 async def stop_strategy_direction(body: StopDirectionBody, state: Annotated[AppState, State()]) -> Strategy:
     return _guard(state, lambda: state.manager.stop_direction(body.strategy_id, body.side))
+
+
+@commands.command()
+async def move_strategy(body: MoveBody, state: Annotated[AppState, State()]) -> StrategyListResp:
+    return _guard(state, lambda: StrategyListResp(
+        [s.model_dump(mode="json") for s in state.manager.move_strategy(body.strategy_id, body.up)]))
 
 
 @commands.command()

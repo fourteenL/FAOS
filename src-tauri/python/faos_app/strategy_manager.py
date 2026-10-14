@@ -103,12 +103,33 @@ class StrategyManager:
         s = Strategy(
             id=self._store.next_id(), leg_a=leg_a, leg_b=leg_b,
             single_lots=single_lots, total_lots=total_lots,
+            sort_key=self._next_sort_key(),
         )
         s.status = StrategyStatus.active  # 本地创建即生效（无服务端回执）
         self._store.add(s)
         self._legs_subscriber([f"{leg_a}.SHFE", f"{leg_b}.SHFE"])  # CTP 订阅两腿行情
         self._push.strategy(s)
         return s
+
+    def _next_sort_key(self) -> float:
+        return max((s.sort_key for s in self._store.list()), default=0) + 1
+
+    def move_strategy(self, strategy_id: int, up: bool) -> list[Strategy]:
+        """自定义排序（2026-10-14 用户定稿）：与上/下邻位交换 sort_key；边界不动作。"""
+        items = sorted(self._store.list(), key=lambda x: (x.sort_key, x.id))
+        idx = next((i for i, x in enumerate(items) if x.id == strategy_id), None)
+        if idx is None:
+            raise ValueError(f"策略不存在: {strategy_id}")
+        j = idx - 1 if up else idx + 1
+        if not 0 <= j < len(items):
+            return items  # 已在顶/底：不动作
+        a, b = items[idx], items[j]
+        a.sort_key, b.sort_key = b.sort_key, a.sort_key
+        self._store.update(a)
+        self._store.update(b)
+        self._push.strategy(a)
+        self._push.strategy(b)
+        return sorted(self._store.list(), key=lambda x: (x.sort_key, x.id))
 
     def create_product(self, product: str, single_lots: float, total_lots: float) -> tuple[int, int]:
         """品种展开：B 腿固定为品种主力合约（配置覆盖>最近未来月），A 腿=其余合约依次配对。"""
@@ -139,6 +160,7 @@ class StrategyManager:
                 continue
             s = Strategy(id=self._store.next_id(), leg_a=sym, leg_b=dominant,
                          product=product, single_lots=single_lots, total_lots=total_lots,
+                         sort_key=self._next_sort_key(),
                          status=StrategyStatus.active)
             self._store.add(s)
             self._push.strategy(s)

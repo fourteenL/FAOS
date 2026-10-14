@@ -60,6 +60,7 @@ class Strategy(BaseModel):
     max_cancels_a: int = 2000  # A 腿撤单上限（风控：超限拒挂新单；策略管理面板可配）
     cancel_count_a: int = 0  # A 腿已撤销委托累计（CTP 回报驱动，持久化）
     cancelled_orderids: list[str] = []  # 已计数的撤单单号（去重；重启后从持久化值继续）
+    sort_key: float = 0  # 自定义排序键（创建追加递增；表格 ↑↓ 与邻位交换）
     slip_a: int = 0  # A 腿（主动）滑点，跳（挂价排队默认不加滑点）
     slip_b: int = 100  # B 腿（被动）滑点，跳（对冲快速成交）
     order_type_a: str = "挂价"  # A 腿报单类型：挂价(排队)/对手价/最新价/市价

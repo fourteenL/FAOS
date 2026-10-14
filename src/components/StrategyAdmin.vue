@@ -19,6 +19,8 @@ const tgt = reactive({
   A: { long_today: null, long_yd: null, short_today: null, short_yd: null },
   B: { long_today: null, long_yd: null, short_today: null, short_yd: null },
 });
+const TGT_KEYS = ["long_today", "long_yd", "short_today", "short_yd"];
+const tgtCache = {};  // strategy_id -> 编辑中的目标数（2026-10-14 定稿：输入绑定策略，切换跟手不串值）
 
 function prefillTargets() {
   for (const leg of ["A", "B"]) {
@@ -40,6 +42,7 @@ async function closeLeg(leg) {
     const r = await store.closeLegTarget(s.value.id, leg, { ...t });
     const parts = (r.sent || []).map((x) => `${x.direction}${x.volume}手·${x.offset}`).join("、");
     message.success(`已发平仓委托：${parts || "无"}`);
+    delete tgtCache[s.value.id];  // 平仓后该策略编辑值作废
     for (const k of Object.keys(t)) t[k] = null;  // 重置让下次轮询重新预填
     refreshLegs();
   } catch (e) {
@@ -64,7 +67,7 @@ onUnmounted(() => clearInterval(legTimer));
 
 watch(
   () => s.value?.id,
-  () => {
+  (newId, oldId) => {
     if (!s.value) return;
     form.slip_a = s.value.slip_a ?? 0;
     form.slip_b = s.value.slip_b ?? 100;
@@ -73,6 +76,12 @@ watch(
     risk.max_cancels_a = s.value.max_cancels_a ?? 2000;
     lots.single = s.value.single_lots ?? 1;
     lots.total = s.value.total_lots ?? 10;
+    // 今昨仓目标输入绑定策略（2026-10-14 定稿）：存旧载新，编辑值不跨策略串
+    if (oldId != null) tgtCache[oldId] = JSON.parse(JSON.stringify(tgt));
+    const c = newId != null ? tgtCache[newId] : null;
+    for (const leg of ["A", "B"]) {
+      for (const k of TGT_KEYS) tgt[leg][k] = c ? c[leg][k] : null;
+    }
     legPos.value = null;
     refreshLegs();
   },

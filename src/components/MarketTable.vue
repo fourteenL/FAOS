@@ -63,6 +63,7 @@ function manualOf(row, key) {
 
 // 全列定宽 + tableLayout=fixed：差价/仓位内容变化（单帧尖刺、涨跌加粗）不再引起整表重排
 const columns = computed(() => [
+  { title: "排序", key: "sort", width: 52, align: "center" },
   { title: "编号", dataIndex: "id", key: "id", width: 60, align: "center" },
   { title: "A合约", dataIndex: "leg_a", key: "leg_a", width: 78, align: "center" },
   { title: "B合约", dataIndex: "leg_b", key: "leg_b", width: 78, align: "center" },
@@ -94,6 +95,15 @@ function cancelCountOf(row) {
   return store.cancelCount(row.pair, `${row.leg_a}.SHFE`);
 }
 
+// 自定义排序：↑↓ 与邻位交换（后端 move_strategy 返回更新列表，经事件/回执刷新行序）
+async function move(row, up) {
+  try {
+    await store.moveStrategy(row.id, up);
+  } catch (e) {
+    /* 失败经通知推送 */
+  }
+}
+
 </script>
 
 <template>
@@ -113,6 +123,12 @@ function cancelCountOf(row) {
     </template>
     <template #bodyCell="{ column, record }">
       <template v-if="column.key === 'cancel_a'">{{ cancelCountOf(record) }}</template>
+      <template v-else-if="column.key === 'sort'">
+        <span class="sort-btns" @click.stop>
+          <a class="sb" title="上移" @click="move(record, true)">↑</a>
+          <a class="sb" title="下移" @click="move(record, false)">↓</a>
+        </span>
+      </template>
       <template v-else-if="column.key === 'id'">
         <span :class="market.value ? 'mkt-open' : 'mkt-closed'">#{{ record.id }}</span>
       </template>
@@ -160,4 +176,7 @@ function cancelCountOf(row) {
   position: sticky; top: 0; z-index: 2;
   background: #fafafa; box-shadow: 0 1px 0 #f0f0f0;
 }
+.sort-btns { display: inline-flex; gap: 4px; }
+.sb { color: #1677ff; font-size: 12px; line-height: 1; cursor: pointer; user-select: none; }
+.sb:hover { color: #0958d9; }
 </style>

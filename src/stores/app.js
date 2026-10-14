@@ -60,7 +60,10 @@ export const useAppStore = defineStore("app", {
     },
     /** 行情表展示集：品种筛选 ∩ 已订阅（未订阅行不展示，管理在订阅抽屉） */
     visibleStrategies(state) {
-      return this.filteredStrategies.filter((s) => s.status !== "unsubscribed");
+      // 自定义排序（2026-10-14 用户定稿）：按 sort_key（创建追加递增，表格 ↑↓ 可调）
+      return this.filteredStrategies
+        .filter((s) => s.status !== "unsubscribed")
+        .sort((a, b) => (a.sort_key ?? 0) - (b.sort_key ?? 0) || a.id - b.id);
     },
   },
   actions: {
@@ -195,6 +198,10 @@ export const useAppStore = defineStore("app", {
     },
     async closeLegTarget(id, leg, targets) {
       return call("close_leg_target", { strategy_id: id, leg, ...targets });
+    },
+    async moveStrategy(id, up) {
+      const list = await call("move_strategy", { strategy_id: id, up });
+      for (const s of list || []) this.upsertStrategy(s);
     },
     async cancelLegOrders(id, leg) {
       return call("cancel_leg_orders", { strategy_id: id, leg });
