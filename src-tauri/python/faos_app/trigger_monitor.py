@@ -43,6 +43,7 @@ class TriggerMonitor:
         self._manager = manager
         self._executor = executor
         self._exec_fail_warned: set = set()  # (strategy_id, action) 告警一次防每帧刷屏
+        self._deferred_logged: set = set()  # (sid, action, spread) 未就绪重试只记一次日志
         self._running_sides: dict[int, set] = {}  # strategy_id -> 运行中算法方向集
         self._algo_side: dict[str, str] = {}      # algoid -> 方向（完成时回退）
 
@@ -73,7 +74,9 @@ class TriggerMonitor:
                     continue  # 执行器未接入（CTP 未启动）：触发单保留
                 from faos_app.log import log
 
-                log(f"FAOS_TRIGGER_FIRED #{s.id} {s.pair} {t.action.value}@{t.spread}")
+                retry_key = (s.id, t.action.value, t.spread)
+                if retry_key not in self._deferred_logged:  # 未就绪重试期间不每帧刷日志
+                    log(f"FAOS_TRIGGER_FIRED #{s.id} {s.pair} {t.action.value}@{t.spread}")
                 try:
                     algoid = self._executor.execute(s, t)
                 except Exception as e:  # 风控拒单等业务异常：只影响本策略，不中断当帧
@@ -85,8 +88,11 @@ class TriggerMonitor:
                     continue  # 触发单保留；参数调整/风控解除后下一帧自动重试
                 self._exec_fail_warned.discard((s.id, t.action.value))  # 成功后重置告警（可再次提醒）
                 if algoid is None:
-                    log(f"FAOS_TRIGGER_DEFERRED #{s.id} 执行器返回 None（CTP 未就绪），触发单保留")
+                    if retry_key not in self._deferred_logged:
+                        log(f"FAOS_TRIGGER_DEFERRED #{s.id} 执行器返回 None（CTP 未就绪），触发单保留")
+                        self._deferred_logged.add(retry_key)
                     continue  # CTP 未就绪：触发单保留，状态不变
+                self._deferred_logged.discard(retry_key)
                 log(f"FAOS_ALGO_STARTED #{s.id} algoid={algoid}")
                 s.triggers.remove(t)
                 s.active_algos.append(algoid)
