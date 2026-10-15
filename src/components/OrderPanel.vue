@@ -199,21 +199,6 @@ const isClosingOrder = (t) => {
   <div v-if="s" class="panel">
     <div class="zones">
       <div class="zone">
-        <div class="zone-title long">做多（买A卖B）</div>
-        <div class="line">
-          <label>多开差价</label>
-          <a-input-number v-model:value="form.open_long" :step="step" :precision="precision" size="small" style="width: 90px" @change="markDirty('open_long')" />
-          <a-button size="small" type="primary" @click="start('open_long')">启动</a-button>
-          <a-button size="small" @click="modify('open_long')">修改</a-button>
-          <a-button size="small" :disabled="stopDisabled('long')" @click="stopCurrent('long')">停止</a-button>
-        </div>
-        <div class="line">
-          <label>多平差价</label>
-          <a-input-number v-model:value="form.close_long" :step="step" :precision="precision" size="small" style="width: 90px" @change="markDirty('close_long')" />
-          <span class="cur" :class="{ off: !cur?.live }" title="实时多开价差（买A卖B 立即成交价）——做多触发条件：多开 ≤ 填价；平空仓即做多区启动">当前多开 {{ fmtLive(cur?.long_open) }}</span>
-        </div>
-      </div>
-      <div class="zone">
         <div class="zone-title short">做空（卖A买B）</div>
         <div class="line">
           <label>空开差价</label>
@@ -225,7 +210,22 @@ const isClosingOrder = (t) => {
         <div class="line">
           <label>空平差价</label>
           <a-input-number v-model:value="form.close_short" :step="step" :precision="precision" size="small" style="width: 90px" @change="markDirty('close_short')" />
-          <span class="cur" :class="{ off: !cur?.live }" title="实时空开价差（卖A买B 立即成交价）——做空触发条件：空开 ≥ 填价；平多仓即做空区启动">当前空开 {{ fmtLive(cur?.short_open) }}</span>
+          <span class="cur" :class="{ off: !cur?.live }" title="实时空开价差（做空触发条件：空开 ≥ 填价；填价 ≤ 当前值即立即触发；平多仓即做空区启动）">{{ fmtLive(cur?.short_open) }}</span>
+        </div>
+      </div>
+      <div class="zone">
+        <div class="zone-title long">做多（买A卖B）</div>
+        <div class="line">
+          <label>多开差价</label>
+          <a-input-number v-model:value="form.open_long" :step="step" :precision="precision" size="small" style="width: 90px" @change="markDirty('open_long')" />
+          <a-button size="small" type="primary" @click="start('open_long')">启动</a-button>
+          <a-button size="small" @click="modify('open_long')">修改</a-button>
+          <a-button size="small" :disabled="stopDisabled('long')" @click="stopCurrent('long')">停止</a-button>
+        </div>
+        <div class="line">
+          <label>多平差价</label>
+          <a-input-number v-model:value="form.close_long" :step="step" :precision="precision" size="small" style="width: 90px" @change="markDirty('close_long')" />
+          <span class="cur" :class="{ off: !cur?.live }" title="实时多开价差（做多触发条件：多开 ≤ 填价；填价 ≥ 当前值即立即触发；平空仓即做多区启动）">{{ fmtLive(cur?.long_open) }}</span>
         </div>
       </div>
     </div>

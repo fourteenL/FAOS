@@ -15,15 +15,15 @@ function directionOf(row) {
   const armed = (action) => (row.triggers || []).some((t) => t.action === action);
   const exec = row.executing_action;
   if (held < 0 && (armed("open_long") || exec === "open_long"))
-    return { label: "做空·平仓中", cls: "dir-active" };
+    return { label: "做空·平仓中", cls: "dir-short" };
   if (held > 0 && (armed("open_short") || exec === "open_short"))
-    return { label: "做多·平仓中", cls: "dir-active" };
+    return { label: "做多·平仓中", cls: "dir-long" };
   const hasLong = held > 0 || armed("open_long") || exec === "open_long";
   const hasShort = held < 0 || armed("open_short") || exec === "open_short";
-  if (hasLong && hasShort) return { label: "空多", cls: "dir-active" };
-  if (hasShort) return { label: "做空", cls: "dir-active" };
-  if (hasLong) return { label: "做多", cls: "dir-active" };
-  return { label: "空闲", cls: "dir-free" };
+  if (hasLong && hasShort) return { label: "空多", cls: "dir-both" };
+  if (hasShort) return { label: "做空", cls: "dir-short" };
+  if (hasLong) return { label: "做多", cls: "dir-long" };
+  return { label: "空闲", cls: "" };  // 2026-10-15 定稿：做多绿/做空红/空闲无色
 }
 
 // 行高亮：执行中（浅红）> 挂单中（浅金）> 选中（浅蓝）
@@ -190,8 +190,9 @@ async function dropOn(targetId) {
 <style scoped>
 .up { color: #cf1322; font-weight: 600; }
 .down { color: #389e0d; font-weight: 600; }
-.dir-free { color: #389e0d; font-weight: 600; }
-.dir-active { color: #cf1322; font-weight: 600; }
+.dir-long { color: #389e0d; font-weight: 600; }   /* 做多=绿 */
+.dir-short { color: #cf1322; font-weight: 600; }  /* 做空=红 */
+.dir-both { color: #1677ff; font-weight: 600; }   /* 空多（双向）=蓝 */
 .pos-hold { color: #cf1322; font-weight: 600; }  /* 仓位非零标红 */
 .mkt-open { color: #389e0d; font-weight: 600; }   /* 交易时段：策略号绿 */
 .mkt-closed { color: #cf1322; font-weight: 600; } /* 休市：策略号红 */
