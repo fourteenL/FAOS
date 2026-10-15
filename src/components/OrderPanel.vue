@@ -93,16 +93,23 @@ const OPEN_INPUT = { open_short: "open_short", open_long: "open_long" };
 
 // 平仓=反向启动（空平/多平按钮已移除），开/平两框不再有比较对象——不做倒挂校验：
 // 用户自定触发价（如填高价尽快触发平仓）是合法意图
-async function doPlace(action, spread) {
+async function doPlace(action, spread, replaceTriggerId) {
   const companion = action === "open_short" ? form.close_short
     : action === "open_long" ? form.close_long : null;  // 开仓时对应平仓价一并保存
   try {
     await store.placeTrigger(s.value.id, {
       action, spread, lots: s.value.single_lots,
       companion_spread: companion ?? undefined,
+      replace_trigger_id: replaceTriggerId ?? undefined,
     });
     dirty.delete(action);  // 下单确认：该字段恢复跟随（显示挂单价）
-    message.success("触发单已挂出（本地监控，等差价触发后拆腿下单）");
+    // 触发条件随单教学（2026-10-15 夜盘实证：空开填 1000 永不触发——方向搞反）
+    const isShort = action === "open_short";
+    const curTxt = cur.value?.live
+      ? `，当前${isShort ? "空开" : "多开"} ${fmtLive(isShort ? cur.value.short_open : cur.value.long_open)}`
+      : "";
+    message.success(`触发单已挂出：${isShort ? "空开 ≥" : "多开 ≤"} ${spread} 才触发${curTxt}`
+      + `${isShort ? "（填价 ≤ 当前空开即立即触发）" : "（填价 ≥ 当前多开即立即触发）"}`);
   } catch (e) {
     message.error(String(e));
   }
@@ -133,7 +140,8 @@ async function start(action) {
   await doPlace(action, spread);
 }
 
-// 修改：改价 = 撤掉本方向旧挂单后按输入框新价重挂；无挂单时等同启动
+// 修改：改价 = 先按新价挂替换单（replace 豁免净额校验——持满仓也能改自己挂单的价），
+// 成功后再撤旧单；无挂单时等同启动。2026-10-15 夜盘实证：旧流程先撤后挂，持满份时被总份误拒。
 async function modify(action) {
   const spread = form[OPEN_INPUT[action]];
   if (spread == null) {
@@ -142,9 +150,11 @@ async function modify(action) {
   }
   const old = openTriggerOf(action);
   try {
-    if (old) await store.cancelTrigger(s.value.id, old.trigger_id);
-    await doPlace(action, spread);
-    if (old) message.success("已按新价格重新挂单");
+    await doPlace(action, spread, old?.trigger_id);
+    if (old) {
+      await store.cancelTrigger(s.value.id, old.trigger_id);
+      message.success("已按新价格重新挂单");
+    }
   } catch (e) {
     message.error(String(e));
   }

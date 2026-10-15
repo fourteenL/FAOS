@@ -339,14 +339,15 @@ class StrategyManager:
     # -- 触发单 ---------------------------------------------------------------
 
     def place_trigger(self, strategy_id: int, action: TriggerAction, spread: float,
-                      lots: Optional[float] = None,
-                      companion_spread: Optional[float] = None) -> Trigger:
+                      lots: Optional[float] = None, companion_spread: Optional[float] = None,
+                      replace_trigger_id: Optional[str] = None) -> Trigger:
         """挂触发单；被拒（重复/超总份/无持仓等）时写 FAOS_TRIGGER_REJECT 日志再抛出。
 
         2026-10-13 实测教训：用户平仓被拒但 faos.log 无痕迹，问题无法定位——
-        被拒的挂单必须留证据。"""
+        被拒的挂单必须留证据。replace_trigger_id=修改挂单价场景（净敞口按新旧差值计）。"""
         try:
-            return self._place_trigger(strategy_id, action, spread, lots, companion_spread)
+            return self._place_trigger(strategy_id, action, spread, lots, companion_spread,
+                                       replace_trigger_id)
         except ValueError as e:
             from faos_app.log import log
 
@@ -355,26 +356,34 @@ class StrategyManager:
             raise
 
     def _place_trigger(self, strategy_id: int, action: TriggerAction, spread: float,
-                       lots: Optional[float] = None,
-                       companion_spread: Optional[float] = None) -> Trigger:
+                       lots: Optional[float] = None, companion_spread: Optional[float] = None,
+                       replace_trigger_id: Optional[str] = None) -> Trigger:
         s = self._require(strategy_id)
         if s.status == StrategyStatus.stopped:
             raise ValueError("策略已停止，无法挂触发单")
         lots = s.single_lots if lots is None else lots
         if lots <= 0:
             raise ValueError("手数必须为正数")
-        same_action = any(t.action == action for t in s.triggers)
-        if same_action and action in _OPEN_ACTIONS:
-            raise ValueError("该方向开仓触发单已存在（做空/做多可并存，同方向仅一张），请用「修改」改价")
-        if same_action:
+        same = next((t for t in s.triggers if t.action == action), None)
+        if same is not None and same.trigger_id != replace_trigger_id:
+            if action in _OPEN_ACTIONS:
+                raise ValueError("该方向开仓触发单已存在（做空/做多可并存，同方向仅一张），请用「修改」改价")
             raise ValueError("该方向平仓触发单已存在")
         if action == TriggerAction.close_short and s.held_units >= 0:
             raise ValueError("无空头价差持仓，无法挂空平触发单")
         if action == TriggerAction.close_long and s.held_units <= 0:
             raise ValueError("无多头价差持仓，无法挂多平触发单")
         if action in _OPEN_ACTIONS:
-            # 总份按净额校验（与交易所双向净仓一致）：对向开仓（含反向平仓）不占新额度
-            signed = lots if action == TriggerAction.open_long else -lots
+            # 总份按净额校验（与交易所双向净仓一致）：对向开仓（含反向平仓）不占新额度；
+            # 修改挂单价（replace）时旧挂单将被撤掉——净敞口按新旧差值计
+            # （2026-10-15 夜盘实证：持仓满份时改自己挂单的价被误拒，只能调总份绕过）
+            effective = lots
+            if replace_trigger_id is not None:
+                old_t = next((t for t in s.triggers
+                              if t.trigger_id == replace_trigger_id and t.action == action), None)
+                if old_t is not None:
+                    effective = lots - old_t.lots
+            signed = effective if action == TriggerAction.open_long else -effective
             after = round(s.held_units + signed, 6)
             if abs(after) > s.total_lots:
                 raise ValueError(
