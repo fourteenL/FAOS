@@ -140,3 +140,23 @@ class LegOps:
 def _dir(p) -> str:
     v = getattr(p.direction, "value", str(p.direction))
     return {"多": "long", "空": "short"}.get(v, str(v).lower())
+
+def account_position_book(positions) -> dict:
+    """账户级持仓簿（柜台实际，含双向）：{vt_symbol: {long_today,long_yd,short_today,short_yd}}。
+
+    锁仓隔离后同一合约多空并存——用户定稿 2026-10-15：app 内直接可见真实持仓
+    （与无限易一致），不再误以为策略间对冲掉了；今昨拆分供平今/平昨参考。"""
+    book = {}
+    for p in positions:
+        if not p.volume:
+            continue
+        v = getattr(p.direction, "value", str(p.direction))
+        d = {"多": "long", "空": "short"}.get(v, str(v).lower())
+        if d not in ("long", "short"):
+            continue
+        yd = getattr(p, "yd_volume", 0) or 0
+        row = book.setdefault(p.vt_symbol,
+                              {"long_today": 0, "long_yd": 0, "short_today": 0, "short_yd": 0})
+        row[f"{d}_yd"] += yd
+        row[f"{d}_today"] += p.volume - yd
+    return book

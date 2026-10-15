@@ -32,6 +32,7 @@ export const useAppStore = defineStore("app", {
     algos: [],       // 价差算法状态（T12 用）
     notices: [],
     spreadQuotes: {},  // pair -> { short_open, long_open, live }（本地合成实时价差，填价参考）
+    accountPositions: {},  // vt_symbol -> { long_today,long_yd,short_today,short_yd }（柜台真实持仓，含双向）
     ctpState: "disconnected",
     ctpStep: "",  // 连接进度步骤（后端关键日志映射）
     selectedId: null,
@@ -195,6 +196,13 @@ export const useAppStore = defineStore("app", {
     },
     async refreshLegOrders(id) {
       return call("get_leg_orders", { strategy_id: id });
+    },
+    async refreshAccountPositions() {
+      try {
+        this.accountPositions = await call("list_account_positions");
+      } catch (e) {
+        this.accountPositions = {};  /* CTP 未连接 */
+      }
     },
     async closeLegTarget(id, leg, targets) {
       return call("close_leg_target", { strategy_id: id, leg, ...targets });

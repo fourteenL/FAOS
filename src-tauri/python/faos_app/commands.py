@@ -350,6 +350,16 @@ async def get_app_status(body: Empty, state: Annotated[AppState, State()]) -> Di
 
 
 @commands.command()
+async def list_account_positions(body: Empty, state: Annotated[AppState, State()]) -> DictResp:
+    """账户真实持仓簿（柜台实际，含锁仓双向、今昨拆分）——app 内可见，不误以为对冲掉。"""
+    from faos_app.leg_ops import account_position_book
+
+    if state.ctp is None:
+        return DictResp({})
+    return DictResp(account_position_book(state.ctp.get_positions()))
+
+
+@commands.command()
 async def login(body: LoginBody, state: Annotated[AppState, State()]) -> LoginResp:
     """登录：写 CTP 凭据并连接（行情链路已退役，无 MQTT）。"""
     apply_login(state.settings, body.ctp_account, body.ctp_password,
