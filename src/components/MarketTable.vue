@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onUnmounted, ref, watch } from "vue";
+import { computed, nextTick, onUnmounted, ref, watch } from "vue";
 import { message } from "ant-design-vue";
 import { useAppStore } from "../stores/app.js";
 import { marketClock } from "../utils/market_open.js";
@@ -82,18 +82,19 @@ const columns = computed(() => [
 ]);
 
 function onRow(row) {
-  const draggable = sortMode.value === "custom";  // 仅自定义模式可拖
   return {
     onClick: () => {
       store.select(row.id);
       emit("select", row.id);
     },
-    draggable,
-    onDragstart: () => { dragId = row.id; },
-    onDragover: (e) => e.preventDefault?.(),
+    onDragover: (e) => e.preventDefault?.(),  // 行=放置目标（把手见编号列）
     onDrop: () => dropOn(row.id),
-    style: { cursor: draggable ? "grab" : "pointer", background: rowBg(row) },
+    style: { cursor: "pointer", background: rowBg(row) },
   };
+}
+
+function onHandleDragStart(row) {
+  dragId = row.id;  // 2026-10-15 定稿：仅编号列把手可拖（行级拖动在真机不生效）
 }
 
 function cancelCountOf(row) {
@@ -112,6 +113,17 @@ const rows = computed(() => {
 });
 
 let dragId = null;
+const rootEl = ref(null);
+
+function rowTops() {
+  const map = new Map();
+  if (rootEl.value) {
+    for (const el of rootEl.value.querySelectorAll("tr[data-row-key]"))
+      map.set(el.getAttribute("data-row-key"), el.getBoundingClientRect().top);
+  }
+  return map;
+}
+
 async function dropOn(targetId) {
   if (dragId == null || dragId === targetId || sortMode.value !== "custom") return;
   const ids = rows.value.map((r) => r.id);
@@ -120,8 +132,19 @@ async function dropOn(targetId) {
   dragId = null;
   if (from < 0 || to < 0) return;
   ids.splice(to, 0, ids.splice(from, 1)[0]);  // 拖动行落到目标位置
+  const before = rowTops();  // FLIP：记录旧位置，重排后位移动画归零
   try {
     await store.reorderStrategies(ids);
+    await nextTick();
+    const after = rowTops();
+    for (const [key, top] of after) {
+      const prev = before.get(key);
+      if (prev == null || prev === top) continue;
+      const el = rootEl.value?.querySelector(`tr[data-row-key="${key}"]`);
+      el?.animate?.(
+        [{ transform: `translateY(${prev - top}px)` }, { transform: "translateY(0)" }],
+        { duration: 220, easing: "ease-out" });
+    }
   } catch (e) {
     message.error("排序保存失败: " + e);
   }
@@ -130,6 +153,7 @@ async function dropOn(targetId) {
 </script>
 
 <template>
+  <div ref="rootEl" class="mt-root">
   <div class="bar">
     <span class="muted">排序</span>
     <button :class="{ tg: true, on: sortMode === 'custom' }" @click="sortMode = 'custom'">自定义</button>
@@ -154,7 +178,11 @@ async function dropOn(targetId) {
     <template #bodyCell="{ column, record }">
       <template v-if="column.key === 'cancel_a'">{{ cancelCountOf(record) }}</template>
       <template v-else-if="column.key === 'id'">
-        <span :class="market.value ? 'mkt-open' : 'mkt-closed'">#{{ record.id }}</span>
+        <span class="idcell">
+          <span v-if="sortMode === 'custom'" class="drag-hd" draggable="true"
+                title="按住拖动调整顺序" @dragstart="onHandleDragStart(record)">⠿</span>
+          <span :class="market.value ? 'mkt-open' : 'mkt-closed'">#{{ record.id }}</span>
+        </span>
       </template>
       <template v-else-if="column.key === 'short_open'">
         <span>{{ fmt(manualOf(record, "manual_open_short")) }}</span>
@@ -185,7 +213,9 @@ async function dropOn(targetId) {
       </template>
     </template>
   </a-table>
+  </div>
 </template>
+
 
 <style scoped>
 .up { color: #cf1322; font-weight: 600; }
@@ -205,4 +235,8 @@ async function dropOn(targetId) {
 .tg { border: 1px solid #d9d9d9; background: #fff; border-radius: 4px; font-size: 12px;
   padding: 1px 8px; cursor: pointer; }
 .tg.on { color: #1677ff; border-color: #1677ff; }
+.mt-root { min-height: 0; }
+.idcell { display: inline-flex; gap: 2px; align-items: center; }
+.drag-hd { cursor: grab; color: #999; font-size: 13px; line-height: 1; user-select: none; }
+.drag-hd:active { cursor: grabbing; }
 </style>

@@ -58,18 +58,11 @@ async function refreshLegs() {
   } catch (e) {
     legPos.value = null;  /* CTP 未连接时保持空 */
   }
-  store.refreshAccountPositions();  // 账户真实持仓（含双向）随同刷新
 }
 onMounted(() => {
   legTimer = setInterval(refreshLegs, 10000);
-  store.refreshAccountPositions();
 });
 
-// 账户持仓簿（柜台实际）：锁仓隔离后同合约多空并存——真实可见，不误以为对冲掉
-const accountRows = computed(() =>
-  Object.entries(store.accountPositions)
-    .map(([sym, v]) => ({ sym, ...v }))
-    .sort((a, b) => a.sym.localeCompare(b.sym)));
 onUnmounted(() => clearInterval(legTimer));
 
 watch(
@@ -178,16 +171,6 @@ async function removeStrategy() {
       </div>
       <p class="hint">A 腿默认挂价排队（滑点 0）；B 腿默认对手价 + 100 跳滑点对冲。市价以「对手价 + 滑点」限价实现。风控：A 腿累计撤单 {{ s.cancel_count_a }} / 上限 {{ risk.max_cancels_a }}，触限自动停止策略并撤全部挂单。</p>
 
-      <a-divider orientation="left" plain class="div">账户持仓（柜台实际 · 含双向今昨）</a-divider>
-      <div v-if="accountRows.length" class="acct">
-        <div v-for="r in accountRows" :key="r.sym" class="acct-row">
-          <span class="mono">{{ r.sym }}</span>
-          <span :class="{ hl: r.long_today || r.long_yd }">多 今{{ r.long_today }}/{{ r.long_yd }}昨</span>
-          <span :class="{ hl: r.short_today || r.short_yd }">空 今{{ r.short_today }}/{{ r.short_yd }}昨</span>
-        </div>
-      </div>
-      <p v-else class="hint">（无持仓或未连接；锁仓隔离下同合约多空并存属正常，对冲发生在平仓时）</p>
-
       <a-divider orientation="left" plain class="div">A/B 腿持仓（今 / 昨）——改小目标数点「平到目标」</a-divider>
       <div class="grid">
         <div class="field">
@@ -249,7 +232,4 @@ async function removeStrategy() {
 .field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: #666; }
 .hint { color: #bbb; font-size: 12px; margin-top: 8px; }
 .placeholder { padding: 16px; color: #999; }
-.acct { display: flex; flex-direction: column; gap: 2px; }
-.acct-row { display: flex; gap: 16px; font-size: 12px; }
-.acct-row .hl { color: #cf1322; font-weight: 600; }
 </style>

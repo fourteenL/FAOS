@@ -7,6 +7,7 @@ import MarketTable from "./components/MarketTable.vue";
 import StrategyAdmin from "./components/StrategyAdmin.vue";
 import SubscriptionDrawer from "./components/SubscriptionDrawer.vue";
 import TriggerList from "./components/TriggerList.vue";
+import AccountPositions from "./components/AccountPositions.vue";
 import SplitLayout from "./components/SplitLayout.vue";
 import OrderPanel from "./components/OrderPanel.vue";
 import SettingsDrawer from "./components/SettingsDrawer.vue";
@@ -87,6 +88,7 @@ watchNotices();
           </a-popconfirm>
           <a-button size="small" @click="openTriggerList">触发单 ({{ store.strategies.reduce((n, s) => n + (s.triggers?.length || 0), 0) }})</a-button>
           <a-button size="small" @click="openSubscription">订阅管理</a-button>
+          <AccountPositions />
           <a-button size="small" @click="openSettings">设置</a-button>
         </template>
       </StatusBanner>
