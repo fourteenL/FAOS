@@ -242,14 +242,18 @@ class CtpService:
         return "reconnect"
 
     def _reconnect_gateway(self) -> None:
-        """关旧网关重拨（网关 connect 每次新建 API，close 释放旧会话线程）。"""
+        """温和重试：在原 API 上重发登录请求（柜台自动重走 授权→登录→结算确认→合约查询）。
+
+        严禁销毁/重建网关——CTP 回调线程阻塞在登录调用时 close/re-create 会原生崩溃
+        整个进程（2026-10-15 beta.10 实测三连崩，每条 STALL_RECONNECT 日志后进程即消失）。
+        重发请求是 CTP 线程安全入口，不触碰 API 生命周期。"""
         try:
             gw = self.main_engine.get_gateway("CTP") if self.main_engine else None
-            if gw is not None:
-                gw.close()
-                gw.connect(self._last_setting or {})
-            else:
-                self.main_engine.connect(self._last_setting or {}, "CTP")
+            td = getattr(gw, "td_api", None)
+            if td is not None:
+                td.login()  # 重发登录 → onRspUserLogin 自动再发结算确认
+            elif self._last_setting is not None:
+                self.main_engine.connect(self._last_setting, "CTP")
         except Exception as e:
             from faos_app.log import log
 
