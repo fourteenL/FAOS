@@ -138,6 +138,11 @@ class CtpService:
         self._ready_fired = False
         self._connected = False
         self.oi_map: dict = {}  # vt_symbol -> 最新持仓量（市场主力判定）
+        # 登录停滞自愈（2026-10-15 用户定稿：卡④结算确认自动重连）
+        self._login_since: Optional[float] = None   # 进入③/④（logining）的时刻
+        self._reconnect_count = 0                   # 本轮连续自动重连次数（就绪/断开复位）
+        self._last_setting: Optional[dict] = None   # 最近一次拨号参数（重连复用）
+        self._gave_up_notified = False
 
     # -- 生命周期 -----------------------------------------------------------
 
@@ -166,6 +171,7 @@ class CtpService:
         self.event_engine.register(EVENT_TICK, self._wrap(self._on_tick_oi))
         # MainEngine.__init__ 已 start EventEngine，不再重复启动
         self._start_flush_loop()
+        self._start_login_watchdog()
 
     def _start_flush_loop(self) -> None:
         if self._portal is None:
@@ -185,7 +191,69 @@ class CtpService:
         if self._connected:
             return
         self._connected = True
-        self.main_engine.connect(build_ctp_setting(settings), "CTP")
+        self._last_setting = build_ctp_setting(settings)
+        self.main_engine.connect(self._last_setting, "CTP")
+
+    # -- 登录停滞自愈（卡③/④ 超 60s 自动重连，最多 3 次） --------------------------
+
+    def _start_login_watchdog(self) -> None:
+        """每 10s 巡检：③/④ 停滞超时 → 自动重连（SimNow 结算确认偶发无响应/同账号会话互踢）。"""
+        if self._portal is None:
+            return
+
+        async def loop():
+            while True:
+                await __import__("anyio").sleep(10)
+                try:
+                    self.handle_login_stall(time.monotonic())
+                except Exception:
+                    pass
+
+        self._portal.start_task_soon(loop)
+
+    def check_login_stall(self, now: float, max_stall: float = 60.0) -> bool:
+        """③/④ 停滞检测（纯决策）：logining 状态超 max_stall 秒未就绪。"""
+        if self.state != "logining" or self._login_since is None:
+            return False
+        return (now - self._login_since) >= max_stall
+
+    def handle_login_stall(self, now: float, max_stall: float = 60.0,
+                           max_retry: int = 3) -> Optional[str]:
+        """停滞处理：关旧网关重拨（返回 "reconnect"）；超过上限一次性告警（"gave_up"/None）。"""
+        if not self.check_login_stall(now, max_stall):
+            return None
+        if self._reconnect_count >= max_retry:
+            if not self._gave_up_notified:
+                self._gave_up_notified = True
+                self._push.notice(
+                    "error",
+                    "登录在结算确认停滞，自动重连 3 次未成功——请检查网络，"
+                    "或另一台电脑是否占用同账号会话（SimNow 每组仅允许一处登录），处理后重新登录")
+            return "gave_up"
+        self._reconnect_count += 1
+        self._login_since = None  # 重开计时窗口
+        from faos_app.log import log
+
+        log(f"FAOS_CTP_LOGIN_STALL_RECONNECT 第{self._reconnect_count}次 "
+            f"(logining 停滞>{max_stall:.0f}s)")
+        self._push.notice("warn", "登录在结算确认停滞，自动重连"
+                          f"（第 {self._reconnect_count} 次）")
+        self._reconnect_gateway()
+        return "reconnect"
+
+    def _reconnect_gateway(self) -> None:
+        """关旧网关重拨（网关 connect 每次新建 API，close 释放旧会话线程）。"""
+        try:
+            gw = self.main_engine.get_gateway("CTP") if self.main_engine else None
+            if gw is not None:
+                gw.close()
+                gw.connect(self._last_setting or {})
+            else:
+                self.main_engine.connect(self._last_setting or {}, "CTP")
+        except Exception as e:
+            from faos_app.log import log
+
+            log(f"FAOS_CTP_RECONNECT_FAIL {e}")
 
     def shutdown(self) -> None:
         if self.main_engine is not None:
@@ -256,6 +324,15 @@ class CtpService:
 
     def _set_state(self, state: str, msg: Optional[str] = None) -> None:
         self.state = state
+        if state == "logining" and self._login_since is None:
+            self._login_since = time.monotonic()  # ③/④ 计时起点（停滞自愈）
+        elif state == "ready":
+            self._login_since = None
+            self._reconnect_count = 0   # 就绪复位：下一轮可再自愈
+            self._gave_up_notified = False
+        elif state == "disconnected":
+            self._login_since = None
+            self._reconnect_count = 0
         self._push.conn_state("ctp", state, msg)  # 前端监听 py://conn-state（kind=ctp；msg=进度步骤）
 
     # -- 测试/驱动 ------------------------------------------------------------
