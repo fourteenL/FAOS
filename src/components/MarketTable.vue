@@ -1,8 +1,9 @@
 <script setup>
-import { computed, nextTick, onUnmounted, ref, watch } from "vue";
+import { computed, onUnmounted, ref, watch } from "vue";
 import { message } from "ant-design-vue";
 import { useAppStore } from "../stores/app.js";
 import { marketClock } from "../utils/market_open.js";
+import DragSortModal from "./DragSortModal.vue";
 
 const emit = defineEmits(["select"]);
 const store = useAppStore();
@@ -87,22 +88,31 @@ function onRow(row) {
       store.select(row.id);
       emit("select", row.id);
     },
-    onDragover: (e) => e.preventDefault?.(),  // 行=放置目标（把手见编号列）
-    onDrop: () => dropOn(row.id),
     style: { cursor: "pointer", background: rowBg(row) },
   };
-}
-
-function onHandleDragStart(row) {
-  dragId = row.id;  // 2026-10-15 定稿：仅编号列把手可拖（行级拖动在真机不生效）
 }
 
 function cancelCountOf(row) {
   return store.cancelCount(row.pair, `${row.leg_a}.SHFE`);
 }
 
-// 排序：自定义（拖动行调序，sort_key 持久化）/ 合约升序 / 合约降序（2026-10-14 定稿）
+// 排序：自定义（弹窗拖动列表调序）/ 合约升序 / 合约降序（2026-10-16 定稿）
 const sortMode = ref("custom");
+const sortModal = ref(null);
+
+function openSortModal() {
+  sortModal.value?.open(rows.value);
+}
+
+async function saveSortOrder(orderedIds) {
+  try {
+    await store.reorderStrategies(orderedIds);
+    sortMode.value = "custom";  // 保存后表格按自定义顺序渲染
+    message.success("顺序已保存");
+  } catch (e) {
+    message.error("排序保存失败: " + e);
+  }
+}
 const rows = computed(() => {
   const list = [...store.visibleStrategies];
   if (sortMode.value === "asc")
@@ -112,54 +122,16 @@ const rows = computed(() => {
   return list;  // custom：store 已按 sort_key 排
 });
 
-let dragId = null;
-const rootEl = ref(null);
-
-function rowTops() {
-  const map = new Map();
-  if (rootEl.value) {
-    for (const el of rootEl.value.querySelectorAll("tr[data-row-key]"))
-      map.set(el.getAttribute("data-row-key"), el.getBoundingClientRect().top);
-  }
-  return map;
-}
-
-async function dropOn(targetId) {
-  if (dragId == null || dragId === targetId || sortMode.value !== "custom") return;
-  const ids = rows.value.map((r) => r.id);
-  const from = ids.indexOf(dragId);
-  const to = ids.indexOf(targetId);
-  dragId = null;
-  if (from < 0 || to < 0) return;
-  ids.splice(to, 0, ids.splice(from, 1)[0]);  // 拖动行落到目标位置
-  const before = rowTops();  // FLIP：记录旧位置，重排后位移动画归零
-  try {
-    await store.reorderStrategies(ids);
-    await nextTick();
-    const after = rowTops();
-    for (const [key, top] of after) {
-      const prev = before.get(key);
-      if (prev == null || prev === top) continue;
-      const el = rootEl.value?.querySelector(`tr[data-row-key="${key}"]`);
-      el?.animate?.(
-        [{ transform: `translateY(${prev - top}px)` }, { transform: "translateY(0)" }],
-        { duration: 220, easing: "ease-out" });
-    }
-  } catch (e) {
-    message.error("排序保存失败: " + e);
-  }
-}
-
 </script>
 
 <template>
-  <div ref="rootEl" class="mt-root">
+  <div class="mt-root">
   <div class="bar">
     <span class="muted">排序</span>
     <button :class="{ tg: true, on: sortMode === 'custom' }" @click="sortMode = 'custom'">自定义</button>
     <button :class="{ tg: true, on: sortMode === 'asc' }" @click="sortMode = 'asc'">合约↑</button>
     <button :class="{ tg: true, on: sortMode === 'desc' }" @click="sortMode = 'desc'">合约↓</button>
-    <span class="muted">自定义模式可拖动行调序（长期保存）</span>
+    <a-button size="small" @click="openSortModal">调序</a-button>
   </div>
   <a-empty v-if="!store.visibleStrategies.length" description="暂无订阅的策略，请在「订阅管理」中创建并订阅" />
   <a-table
@@ -178,11 +150,7 @@ async function dropOn(targetId) {
     <template #bodyCell="{ column, record }">
       <template v-if="column.key === 'cancel_a'">{{ cancelCountOf(record) }}</template>
       <template v-else-if="column.key === 'id'">
-        <span class="idcell">
-          <span v-if="sortMode === 'custom'" class="drag-hd" draggable="true"
-                title="按住拖动调整顺序" @dragstart="onHandleDragStart(record)">⠿</span>
-          <span :class="market.value ? 'mkt-open' : 'mkt-closed'">#{{ record.id }}</span>
-        </span>
+        <span :class="market.value ? 'mkt-open' : 'mkt-closed'">#{{ record.id }}</span>
       </template>
       <template v-else-if="column.key === 'short_open'">
         <span>{{ fmt(manualOf(record, "manual_open_short")) }}</span>
@@ -213,6 +181,7 @@ async function dropOn(targetId) {
       </template>
     </template>
   </a-table>
+    <DragSortModal ref="sortModal" @save="saveSortOrder" />
   </div>
 </template>
 
