@@ -63,6 +63,7 @@ class PlaceTriggerBody(IdBody):
     lots: Optional[float] = None
     companion_spread: Optional[float] = None  # 开仓下单时对应的平仓价一并保存
     replace_trigger_id: Optional[str] = None  # 修改挂单价：旧单稍后撤，净敞口按差值计
+    is_close_order: bool = False  # 平仓按钮通道（反向开仓平仓唯一入口）
 
 
 class CancelTriggerBody(IdBody):
@@ -309,7 +310,8 @@ async def place_trigger(body: PlaceTriggerBody, state: Annotated[AppState, State
             raise ValueError(f"未知触发动作: {body.action}")
         return state.manager.place_trigger(body.strategy_id, action, body.spread, body.lots,
                                             companion_spread=body.companion_spread,
-                                            replace_trigger_id=body.replace_trigger_id)
+                                            replace_trigger_id=body.replace_trigger_id,
+                                            is_close_order=body.is_close_order)
 
     return _guard(state, run)
 

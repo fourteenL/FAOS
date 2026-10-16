@@ -52,6 +52,9 @@ class SpreadService:
         self._algo_direction: dict[str, object] = {}  # algoid -> Direction（方向停止用）
         self._algo_action: dict[str, object] = {}  # algoid -> TriggerAction（成功通知文案用）
         self._algo_close_mark: dict[str, bool] = {}  # algoid -> 是否平仓单（反向开仓，通知文案用）
+        self._algo_rearm: dict = {}   # algoid -> (strategy_id, action, spread, lots) 看门狗超时重挂用
+        self._algo_traded: dict[str, float] = {}  # algoid -> 已成交量（重挂判定）
+        self._rearm_fn = None  # 超时重挂回调（main 注入 manager.place_trigger）
         self._algo_latest: dict[str, "AlgoItem"] = {}  # pair -> 最新算法快照（追价文案用）
         self._algo_wait_warned: set = set()  # pair -> 已告警（盘口停滞提醒一次性）
         if event_engine is not None:
@@ -205,6 +208,8 @@ class SpreadService:
             self._algo_action[algoid] = trigger.action
             self._cap_halted.discard(strategy.id)  # 上限调大后恢复交易：急停标记复位
             self._algo_close_mark[algoid] = closing
+            self._algo_rearm[algoid] = (strategy.id, trigger.action, trigger.spread, trigger.lots)
+            self._algo_traded[algoid] = 0
         return algoid or None
 
     def stop_algos(self, strategy: Strategy) -> None:
@@ -233,8 +238,15 @@ class SpreadService:
 
     # -- 算法事件 ---------------------------------------------------------------
 
+    def set_rearm_fn(self, fn) -> None:
+        """看门狗超时重挂回调（main 注入 manager.place_trigger）。"""
+        self._rearm_fn = fn
+
     def _watchdog_tick(self, now: float) -> None:
-        """I8: 停止超时未完成的算法并告警（SpreadTaker 追价不会自止）。"""
+        """I8: 停止超时未完成的算法并告警（SpreadTaker 追价不会自止）。
+
+        2026-10-16 用户实证：追价 300s 超时杀算法后触发单已消费——挂单"自动消失"。
+        零成交的超时改为原价重挂触发单（行情恢复自动再触发）；部分成交不重挂（人工核对）。"""
         import time as _time
 
         timeout = getattr(self._algo, "timeout", 300)
@@ -244,6 +256,19 @@ class SpreadService:
             self._algo_started.pop(algoid, None)
             if self._engine is not None:
                 self._engine.stop_algo(algoid)
+            rearm = self._algo_rearm.pop(algoid, None)
+            traded = self._algo_traded.get(algoid, 0)
+            if rearm is not None and traded == 0 and self._rearm_fn is not None:
+                try:
+                    self._rearm_fn(*rearm)
+                    self._push.notice(
+                        "warn", f"价差算法 {algoid} 追价超时（{timeout} 秒未成交），已停止并"
+                        "原价重挂触发单——行情恢复后自动再触发（挂单未丢失）")
+                    continue
+                except Exception as e:
+                    from faos_app.log import log
+
+                    log(f"FAOS_WATCHDOG_REARM_FAIL {algoid} {e}")
             self._push.notice(
                 "warn", f"价差算法 {algoid} 追价超时（{timeout} 秒未完成），已自动停止，请检查腿部持仓"
             )
@@ -308,6 +333,8 @@ class SpreadService:
                 f"{item.spread_name} 算法已启动但价差盘口无效（某腿可能无双边报价/行情停滞），"
                 "暂不下单；请检查两腿合约流动性，长期无价差将超时自动停止")
         self._algo_latest[item.spread_name] = item  # 未完成算法的最新快照
+        if item.algoid in self._algo_started:
+            self._algo_traded[item.algoid] = item.traded_volume
         d = asdict(item)
         d["direction"] = getattr(item.direction, "value", str(item.direction))
         d["status"] = getattr(item.status, "value", str(item.status))
@@ -320,6 +347,8 @@ class SpreadService:
             return
         self._algo_started.pop(item.algoid, None)
         self._algo_direction.pop(item.algoid, None)
+        self._algo_rearm.pop(item.algoid, None)
+        self._algo_traded.pop(item.algoid, None)
         action = self._algo_action.pop(item.algoid, None)
         closing = self._algo_close_mark.pop(item.algoid, False)
         if item.traded_volume > 0:

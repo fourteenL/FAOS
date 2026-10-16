@@ -340,14 +340,15 @@ class StrategyManager:
 
     def place_trigger(self, strategy_id: int, action: TriggerAction, spread: float,
                       lots: Optional[float] = None, companion_spread: Optional[float] = None,
-                      replace_trigger_id: Optional[str] = None) -> Trigger:
+                      replace_trigger_id: Optional[str] = None,
+                      is_close_order: bool = False) -> Trigger:
         """挂触发单；被拒（重复/超总份/无持仓等）时写 FAOS_TRIGGER_REJECT 日志再抛出。
 
         2026-10-13 实测教训：用户平仓被拒但 faos.log 无痕迹，问题无法定位——
         被拒的挂单必须留证据。replace_trigger_id=修改挂单价场景（净敞口按新旧差值计）。"""
         try:
             return self._place_trigger(strategy_id, action, spread, lots, companion_spread,
-                                       replace_trigger_id)
+                                       replace_trigger_id, is_close_order)
         except ValueError as e:
             from faos_app.log import log
 
@@ -357,13 +358,22 @@ class StrategyManager:
 
     def _place_trigger(self, strategy_id: int, action: TriggerAction, spread: float,
                        lots: Optional[float] = None, companion_spread: Optional[float] = None,
-                       replace_trigger_id: Optional[str] = None) -> Trigger:
+                       replace_trigger_id: Optional[str] = None,
+                       is_close_order: bool = False) -> Trigger:
         s = self._require(strategy_id)
         if s.status == StrategyStatus.stopped:
             raise ValueError("策略已停止，无法挂触发单")
         lots = s.single_lots if lots is None else lots
         if lots <= 0:
             raise ValueError("手数必须为正数")
+        # 反向平仓停用（2026-10-16 用户定稿：易对冲掉别策略持仓）——只留「平仓」按钮通道
+        if action in _OPEN_ACTIONS and not is_close_order:
+            reverse = ((action == TriggerAction.open_long and s.held_units < 0)
+                       or (action == TriggerAction.open_short and s.held_units > 0))
+            if reverse:
+                raise ValueError(
+                    f"持{'空' if s.held_units < 0 else '多'}仓的反向开仓挂单已停用（会对冲掉持仓）"
+                    "——请使用对应区「平仓」按钮")
         same = next((t for t in s.triggers if t.action == action), None)
         if same is not None and same.trigger_id != replace_trigger_id:
             if action in _OPEN_ACTIONS:

@@ -119,9 +119,9 @@ async function doPlace(action, spread, replaceTriggerId) {
 function emptyInputHint(action) {
   const held = s.value?.held_units || 0;
   if (action === "open_long" && held < 0)
-    return "持空仓：请填多开差价平仓（当前多开价附近可尽快触发）";
+    return "持空仓：反向开仓已停用，平仓请用做空区「平仓」按钮";
   if (action === "open_short" && held > 0)
-    return "持多仓：请填空开差价平仓（当前空开价附近可尽快触发）";
+    return "持多仓：反向开仓已停用，平仓请用做多区「平仓」按钮";
   return null;
 }
 
@@ -183,6 +183,7 @@ async function closeNow(side) {
     await store.placeTrigger(st.id, {
       action, spread, lots: st.single_lots,
       replace_trigger_id: old?.trigger_id,
+      is_close_order: true,  // 平仓按钮通道（反向开仓的唯一入口）
     });
     if (old) await store.cancelTrigger(st.id, old.trigger_id);
     message.success(`平仓单已挂出：${side === "short" ? "买回" : "卖出"} ${st.single_lots} 份 @差价 ${spread}`
