@@ -1,5 +1,5 @@
 {
- "updated_at": "2026-10-15",
+ "updated_at": "2026-10-16",
  "products": {
   "ad": {
    "contracts": [
@@ -33,7 +33,7 @@
     "ag2709.SHFE",
     "ag2710.SHFE"
    ],
-   "dominant": "ag2612"
+   "dominant": "ag2611"
   },
   "al": {
    "contracts": [
