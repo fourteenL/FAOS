@@ -119,9 +119,9 @@ async function doPlace(action, spread, replaceTriggerId) {
 function emptyInputHint(action) {
   const held = s.value?.held_units || 0;
   if (action === "open_long" && held < 0)
-    return "持空仓：反向开仓已停用，平仓请用做空区「平仓」按钮";
+    return "持空仓：此处为正常多开单（锁仓开仓，不自动平仓）；平仓请用做空区「平仓」按钮";
   if (action === "open_short" && held > 0)
-    return "持多仓：反向开仓已停用，平仓请用做多区「平仓」按钮";
+    return "持多仓：此处为正常空开单（锁仓开仓，不自动平仓）；平仓请用做多区「平仓」按钮";
   return null;
 }
 

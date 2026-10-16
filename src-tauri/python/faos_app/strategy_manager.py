@@ -366,14 +366,8 @@ class StrategyManager:
         lots = s.single_lots if lots is None else lots
         if lots <= 0:
             raise ValueError("手数必须为正数")
-        # 反向平仓停用（2026-10-16 用户定稿：易对冲掉别策略持仓）——只留「平仓」按钮通道
-        if action in _OPEN_ACTIONS and not is_close_order:
-            reverse = ((action == TriggerAction.open_long and s.held_units < 0)
-                       or (action == TriggerAction.open_short and s.held_units > 0))
-            if reverse:
-                raise ValueError(
-                    f"持{'空' if s.held_units < 0 else '多'}仓的反向开仓挂单已停用（会对冲掉持仓）"
-                    "——请使用对应区「平仓」按钮")
+        # 2026-10-16 定稿修订：持仓位时反方向挂单=正常开仓单（锁仓开仓不净仓），
+        # 平仓通道只认「平仓」按钮的 is_close_order 标记
         same = next((t for t in s.triggers if t.action == action), None)
         if same is not None and same.trigger_id != replace_trigger_id:
             if action in _OPEN_ACTIONS:
@@ -404,7 +398,8 @@ class StrategyManager:
         from faos_app.log import log
 
         log(f"FAOS_TRIGGER_PLACED #{s.id} {s.pair} {action.value}@{spread} lots={lots}")
-        t = Trigger(trigger_id=f"t{uuid4().hex[:8]}", action=action, spread=spread, lots=lots)
+        t = Trigger(trigger_id=f"t{uuid4().hex[:8]}", action=action, spread=spread, lots=lots,
+                    is_close=is_close_order)
         s.triggers.append(t)
         if s.status in (StrategyStatus.active, StrategyStatus.unsubscribed, StrategyStatus.pending):
             s.status = StrategyStatus.armed

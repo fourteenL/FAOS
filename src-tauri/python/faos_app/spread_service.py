@@ -181,9 +181,9 @@ class SpreadService:
             return None
         import time as _time
 
-        # 平仓=反向开仓（2026-10-13 定稿）：点燃时持仓为反向 → 平仓算法
-        closing = ((trigger.action == TriggerAction.open_long and strategy.held_units < 0)
-                   or (trigger.action == TriggerAction.open_short and strategy.held_units > 0))
+        # 平仓通道=按钮专用（2026-10-16 定稿修订）：按挂单 is_close 标记判定，
+        # 不再看方向与持仓的关系——手动反向挂单=正常开仓（锁仓，不净任何持仓）
+        closing = bool(getattr(trigger, "is_close", False))
         # 策略隔离（2026-10-14 用户实证三问题同根：共享主力腿+净仓转换互相吃腿）：
         # 开仓锁仓（OPEN 永不净转换→上期所双向持仓，各策略腿物理隔离，也避免
         # 平今/平昨错配被柜台拒单）；反向平仓保持净仓（实际对冲本策略两腿）

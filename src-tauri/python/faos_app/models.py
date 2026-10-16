@@ -38,6 +38,7 @@ class Trigger(BaseModel):
     spread: float
     lots: float
     created_at: str = Field(default_factory=lambda: datetime.now().isoformat(timespec="seconds"))
+    is_close: bool = False  # 平仓按钮通道（净仓对冲+平仓文案）；普通挂单一律锁仓正常开仓
 
 
 class Strategy(BaseModel):
