@@ -161,33 +161,32 @@ async function modify(action) {
 }
 
 // 平仓=反向开仓（手动路径保留：持多仓去做空区启动、持空仓去做多区启动）。
-// 独立平仓按钮（2026-10-16 用户定稿）：一键平净，不需填价不需换区——
-// 按当前实时价差自动取必触发价（平空=多开+100、平多=空开-100），份数=持仓份数，
-// 走既有反向开仓链路（追价拆腿/对冲/平仓完成通知）；已有同向挂单自动替换。
+// 独立平仓按钮（2026-10-16 用户定稿修订）：按平仓价输入框（空平/多平）挂反向触发单，
+// 份数=策略管理的单份（每次触发手数，多次点击逐份平）；不自动取价；同向旧挂单自动替换。
 async function closeNow(side) {
   const st = s.value;
   const held = st?.held_units || 0;
-  const lots = Math.abs(held);
-  if (!lots) {
-    message.warning("无持仓可平");
+  if (!(side === "short" ? held < 0 : held > 0)) {
+    message.warning("无对应持仓可平");
     return;
   }
-  if (!cur.value?.live) {
-    message.warning("无实时价差（行情未就绪/停滞），稍候再试");
+  const spread = side === "short" ? form.close_short : form.close_long;
+  if (spread == null) {
+    message.warning(side === "short"
+      ? "请填写空平差价（当前多开价附近可尽快触发）"
+      : "请填写多平差价（当前空开价附近可尽快触发）");
     return;
   }
   const action = side === "short" ? "open_long" : "open_short";  // 平空=买回=多开方向
-  const spread = side === "short"
-    ? Number((Number(cur.value.long_open) + 100).toFixed(precision.value))   // 多开 ≤ 触发价 → 必立即触发
-    : Number((Number(cur.value.short_open) - 100).toFixed(precision.value)); // 空开 ≥ 触发价 → 必立即触发
   const old = openTriggerOf(action);  // 旧的平仓尝试挂单自动替换
   try {
     await store.placeTrigger(st.id, {
-      action, spread, lots,
+      action, spread, lots: st.single_lots,
       replace_trigger_id: old?.trigger_id,
     });
     if (old) await store.cancelTrigger(st.id, old.trigger_id);
-    message.success(`平仓单已挂出：${side === "short" ? "买回" : "卖出"} ${lots} 份，按当前价立即触发拆腿（请等完成通知，勿点停止）`);
+    message.success(`平仓单已挂出：${side === "short" ? "买回" : "卖出"} ${st.single_lots} 份 @差价 ${spread}`
+      + "，到价拆腿（请等完成通知，勿点停止）");
   } catch (e) {
     message.error(String(e));
   }
@@ -241,7 +240,7 @@ const isClosingOrder = (t) => {
           <label>空平差价</label>
           <a-input-number v-model:value="form.close_short" :step="step" :precision="precision" size="small" style="width: 90px" @change="markDirty('close_short')" />
           <span class="cur" :class="{ off: !cur?.live }" title="实时空开价差（做空触发条件：空开 ≥ 填价；填价 ≤ 当前值即立即触发）">{{ fmtLive(cur?.short_open) }}</span>
-          <a-button size="small" danger :disabled="!(s.held_units < 0)" title="一键平掉全部空头价差持仓（按当前对手价立即触发拆腿）" @click="closeNow('short')">平仓</a-button>
+          <a-button size="small" danger :disabled="!(s.held_units < 0)" title="按空平差价挂买回单，份数=单份；多次点击逐份平" @click="closeNow('short')">平仓</a-button>
         </div>
       </div>
       <div class="zone">
@@ -257,7 +256,7 @@ const isClosingOrder = (t) => {
           <label>多平差价</label>
           <a-input-number v-model:value="form.close_long" :step="step" :precision="precision" size="small" style="width: 90px" @change="markDirty('close_long')" />
           <span class="cur" :class="{ off: !cur?.live }" title="实时多开价差（做多触发条件：多开 ≤ 填价；填价 ≥ 当前值即立即触发）">{{ fmtLive(cur?.long_open) }}</span>
-          <a-button size="small" danger :disabled="!(s.held_units > 0)" title="一键平掉全部多头价差持仓（按当前对手价立即触发拆腿）" @click="closeNow('long')">平仓</a-button>
+          <a-button size="small" danger :disabled="!(s.held_units > 0)" title="按多平差价挂卖出单，份数=单份；多次点击逐份平" @click="closeNow('long')">平仓</a-button>
         </div>
       </div>
     </div>
