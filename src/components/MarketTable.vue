@@ -51,7 +51,8 @@ function legPos(row, leg, dir) {
 // 仓位单元格：非零标红加粗，零仓显示 --
 function posCell(row, leg, dir) {
   const v = legPos(row, leg, dir);
-  return { text: v > 0 ? v : "--", hold: v > 0 };
+  return { text: v > 0 ? v : "--", hold: v > 0,
+           cls: v > 0 ? ["pos-hold", dir === "short" ? "pos-short" : "pos-long"] : [] };
 }
 
 function fmt(v) {
@@ -165,16 +166,16 @@ const rows = computed(() => {
         <span>{{ fmt(manualOf(record, "manual_close_long")) }}</span>
       </template>
       <template v-else-if="column.key === 'a_short'">
-        <span :class="{ 'pos-hold': posCell(record, 'a', 'short').hold }">{{ posCell(record, 'a', 'short').text }}</span>
+        <span :class="posCell(record, 'a', 'short').cls">{{ posCell(record, 'a', 'short').text }}</span>
       </template>
       <template v-else-if="column.key === 'b_short'">
-        <span :class="{ 'pos-hold': posCell(record, 'b', 'short').hold }">{{ posCell(record, 'b', 'short').text }}</span>
+        <span :class="posCell(record, 'b', 'short').cls">{{ posCell(record, 'b', 'short').text }}</span>
       </template>
       <template v-else-if="column.key === 'a_long'">
-        <span :class="{ 'pos-hold': posCell(record, 'a', 'long').hold }">{{ posCell(record, 'a', 'long').text }}</span>
+        <span :class="posCell(record, 'a', 'long').cls">{{ posCell(record, 'a', 'long').text }}</span>
       </template>
       <template v-else-if="column.key === 'b_long'">
-        <span :class="{ 'pos-hold': posCell(record, 'b', 'long').hold }">{{ posCell(record, 'b', 'long').text }}</span>
+        <span :class="posCell(record, 'b', 'long').cls">{{ posCell(record, 'b', 'long').text }}</span>
       </template>
       <template v-else-if="column.key === 'status'">
         <span :class="directionOf(record).cls">{{ directionOf(record).label }}</span>
@@ -192,7 +193,9 @@ const rows = computed(() => {
 .dir-long { color: #389e0d; font-weight: 600; }   /* 做多=绿 */
 .dir-short { color: #cf1322; font-weight: 600; }  /* 做空=红 */
 .dir-both { color: #1677ff; font-weight: 600; }   /* 空多（双向）=蓝 */
-.pos-hold { color: #cf1322; font-weight: 600; }  /* 仓位非零标红 */
+.pos-hold { font-weight: 600; }                 /* 仓位非零加粗 */
+.pos-short { color: #389e0d; }  /* 空头持仓=绿（2026-10-17 定稿） */
+.pos-long { color: #cf1322; }   /* 多头持仓=红 */
 .mkt-open { color: #389e0d; font-weight: 600; }   /* 交易时段：策略号绿 */
 .mkt-closed { color: #cf1322; font-weight: 600; } /* 休市：策略号红 */
 :deep(td) { font-variant-numeric: tabular-nums; }  /* 等宽数字：位数变化不改变单元格宽度 */

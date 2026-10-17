@@ -160,6 +160,17 @@ async function modify(action) {
   }
 }
 
+// 停止平仓可点条件：本方向有挂单或算法在跑（含平仓单/开仓单活动——方向级停止一视同仁）
+function hasCloseActivity(side) {
+  const st = s.value;
+  if (!st) return false;
+  const sideActs = side === "short"
+    ? ["open_short", "close_short", "open_long"] : ["open_long", "close_long", "open_short"];
+  // short 区的平仓单是 open_long（反向）——两向活动都算
+  const armed = (st.triggers || []).some((t) => t.action.startsWith("open_") || t.action.startsWith("close_"));
+  return armed || st.active_algos.length > 0;
+}
+
 // 平仓=反向开仓（手动路径保留：持多仓去做空区启动、持空仓去做多区启动）。
 // 独立平仓按钮（2026-10-16 用户定稿修订）：按平仓价输入框（空平/多平）挂反向触发单，
 // 份数=策略管理的单份（每次触发手数，多次点击逐份平）；不自动取价；同向旧挂单自动替换。
@@ -242,6 +253,7 @@ const isClosingOrder = (t) => {
           <a-input-number v-model:value="form.close_short" :step="step" :precision="precision" size="small" style="width: 90px" @change="markDirty('close_short')" />
           <span class="cur" :class="{ off: !cur?.live }" title="实时空开价差（做空触发条件：空开 ≥ 填价；填价 ≤ 当前值即立即触发）">{{ fmtLive(cur?.short_open) }}</span>
           <a-button size="small" danger :disabled="!(s.held_units < 0)" title="按空平差价挂买回单，份数=单份；多次点击逐份平" @click="closeNow('short')">平仓</a-button>
+          <a-button size="small" :disabled="!hasCloseActivity('short')" title="撤销本方向平仓挂单并停止执行中的平仓算法" @click="stopCurrent('short')">停止平仓</a-button>
         </div>
       </div>
       <div class="zone">
@@ -258,6 +270,7 @@ const isClosingOrder = (t) => {
           <a-input-number v-model:value="form.close_long" :step="step" :precision="precision" size="small" style="width: 90px" @change="markDirty('close_long')" />
           <span class="cur" :class="{ off: !cur?.live }" title="实时多开价差（做多触发条件：多开 ≤ 填价；填价 ≥ 当前值即立即触发）">{{ fmtLive(cur?.long_open) }}</span>
           <a-button size="small" danger :disabled="!(s.held_units > 0)" title="按多平差价挂卖出单，份数=单份；多次点击逐份平" @click="closeNow('long')">平仓</a-button>
+          <a-button size="small" :disabled="!hasCloseActivity('long')" title="撤销本方向平仓挂单并停止执行中的平仓算法" @click="stopCurrent('long')">停止平仓</a-button>
         </div>
       </div>
     </div>
