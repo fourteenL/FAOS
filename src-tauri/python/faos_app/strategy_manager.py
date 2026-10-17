@@ -293,9 +293,10 @@ class StrategyManager:
                     raise ValueError(f"报单类型无效，应为 {'/'.join(self.ORDER_TYPES)}")
                 setattr(s, field, val)
         if max_cancels_a is not None:
+            # 2026-10-17 定稿：A 腿撤单上限上限=2000——不填默认 2000，超过按 2000 处理
             if max_cancels_a < 1:
                 raise ValueError("A 腿撤单上限必须为正数")
-            s.max_cancels_a = int(max_cancels_a)
+            s.max_cancels_a = min(int(max_cancels_a), 2000)
         self._store.update(s)
         self._push.strategy(s)
         return s

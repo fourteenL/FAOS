@@ -177,11 +177,11 @@ async function removeStrategy() {
         </div>
         <div class="field">
           <span>A腿撤单上限（超限拒下单）</span>
-          <a-input-number v-model:value="risk.max_cancels_a" :min="1" size="small" style="width: 90px" />
+          <a-input-number v-model:value="risk.max_cancels_a" :min="1" :max="2000" size="small" style="width: 90px" />
         </div>
         <a-button size="small" type="primary" @click="saveConfig">保存参数</a-button>
       </div>
-      <p class="hint">A 腿默认挂价排队（滑点 0）；B 腿默认对手价 + 100 跳滑点对冲。市价以「对手价 + 滑点」限价实现。风控：A 腿累计撤单 {{ s.cancel_count_a }} / 上限 {{ risk.max_cancels_a }}，触限自动停止策略并撤全部挂单。</p>
+      <p class="hint">A 腿默认挂价排队（滑点 0）；B 腿默认对手价 + 100 跳滑点对冲。市价以「对手价 + 滑点」限价实现。风控：A 腿累计撤单 {{ s.cancel_count_a }} / 上限 {{ risk.max_cancels_a }}（上限最大 2000，不填默认 2000），触限自动停止策略并撤全部挂单。</p>
 
       <a-divider orientation="left" plain class="div">A/B 腿持仓（今 / 昨）——改小目标数点「平到目标」</a-divider>
       <div class="grid">
