@@ -108,7 +108,7 @@ async function doPlace(action, spread, replaceTriggerId) {
     const curTxt = cur.value?.live
       ? `，当前${isShort ? "空开" : "多开"} ${fmtLive(isShort ? cur.value.short_open : cur.value.long_open)}`
       : "";
-    message.success(`触发单已挂出：${isShort ? "空开 ≥" : "多开 ≤"} ${spread} 才触发${curTxt}`
+    message.success(`触发单已挂出：${isShort ? "做空" : "做多"} ${s.value.single_lots} 份，${isShort ? "空开 ≥" : "多开 ≤"} ${spread} 才触发${curTxt}`
       + `${isShort ? "（填价 ≤ 当前空开即立即触发）" : "（填价 ≥ 当前多开即立即触发）"}`);
   } catch (e) {
     message.error(String(e));

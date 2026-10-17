@@ -90,11 +90,23 @@ watch(
 async function saveLots() {
   try {
     await store.setLots(s.value.id, { single_lots: lots.single, total_lots: lots.total });
-    message.success("份数已保存");
+    message.success(`份数已保存：单份 ${lots.single} / 总份 ${lots.total}`);
   } catch (e) {
     message.error(String(e));
   }
 }
+
+// 份数改动自动保存（防抖 800ms）——夜盘实证：改单份忘点「保存份数」，下单仍是旧份数
+let lotsTimer = null;
+watch(
+  () => [lots.single, lots.total, s.value?.id],
+  ([single, total], [oldSingle, oldTotal, oldId]) => {
+    if (oldId == null || single == null || total == null) return;
+    if (single === oldSingle && total === oldTotal) return;
+    clearTimeout(lotsTimer);
+    lotsTimer = setTimeout(() => saveLots(), 800);
+  }
+);
 
 async function saveConfig() {
   try {

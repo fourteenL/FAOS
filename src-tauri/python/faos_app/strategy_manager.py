@@ -366,8 +366,13 @@ class StrategyManager:
         lots = s.single_lots if lots is None else lots
         if lots <= 0:
             raise ValueError("手数必须为正数")
-        # 2026-10-16 定稿修订：持仓位时反方向挂单=正常开仓单（锁仓开仓不净仓），
-        # 平仓通道只认「平仓」按钮的 is_close_order 标记
+        # 2026-10-17 定稿：持仓位时反方向开仓=自动按平仓处理（净仓对冲、净持仓与柜台一致）。
+        # 教训（夜盘实证）：若按"正常开仓"锁仓，柜台多空双向留存而净持仓归零——
+        # 平仓按钮置灰、同向加仓被总份拒，用户被彻底卡住
+        if action in _OPEN_ACTIONS and not is_close_order:
+            if ((action == TriggerAction.open_long and s.held_units < 0)
+                    or (action == TriggerAction.open_short and s.held_units > 0)):
+                is_close_order = True
         same = next((t for t in s.triggers if t.action == action), None)
         if same is not None and same.trigger_id != replace_trigger_id:
             if action in _OPEN_ACTIONS:
