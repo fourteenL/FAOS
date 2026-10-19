@@ -347,18 +347,34 @@ class SpreadService:
             return
         self._algo_started.pop(item.algoid, None)
         self._algo_direction.pop(item.algoid, None)
+        _done_rearm = self._algo_rearm.get(item.algoid)
         self._algo_rearm.pop(item.algoid, None)
         self._algo_traded.pop(item.algoid, None)
         action = self._algo_action.pop(item.algoid, None)
         closing = self._algo_close_mark.pop(item.algoid, False)
         if item.traded_volume > 0:
             if closing and action == TriggerAction.open_long:
-                tpl = "平空完成（买回 {v:.0f} 份）"
+                tpl = "平空完成（买回 {v:.0f} 份）{slip}"
             elif closing and action == TriggerAction.open_short:
-                tpl = "平多完成（卖出 {v:.0f} 份）"
+                tpl = "平多完成（卖出 {v:.0f} 份）{slip}"
             else:
-                tpl = _ACTION_DONE_NOTICE.get(action, "价差算法完成（成交 {v:.0f} 份）")
-            self._push.notice("success", tpl.format(v=item.traded_volume))
+                tpl = _ACTION_DONE_NOTICE.get(action, "价差算法完成（成交 {v:.0f} 份）") + "{slip}"
+            # 滑点提醒（2026-10-19 定稿）：成交均价较触发价的差 + A 腿追价次数
+            slip = ""
+            rearm = _done_rearm
+            chase_a = getattr(item, "chase_a", 0)
+            parts = []
+            if rearm is not None and getattr(item, "traded_price", 0):
+                diff = round(item.traded_price - rearm[2], 6)
+                if abs(diff) > 1e-9:
+                    good = "有利" if ((action == TriggerAction.open_long and diff < 0)
+                                      or (action == TriggerAction.open_short and diff > 0)) else "不利"
+                    parts.append(f"滑点 {abs(diff):g}（{good}，成交均价 {item.traded_price:g} vs 触发 {rearm[2]:g}）")
+            if chase_a > 1:
+                parts.append(f"A 腿追价 {chase_a - 1} 次")
+            if parts:
+                slip = "；" + "，".join(parts)
+            self._push.notice("success", tpl.format(v=item.traded_volume, slip=slip))
         from faos_app.log import log
 
         log(f"FAOS_ALGO_DONE {item.spread_name} {item.status.value} traded={item.traded_volume}")

@@ -24,7 +24,7 @@ else { Write-Host "[1/4] 嵌入式 Python 已存在，跳过下载" }
 # 2. 依赖装入嵌入式 Python（faos-app 必须非 editable，保证便携）
 Write-Host "[2/4] 安装 Python 依赖 ..."
 & $pyembed\python.exe -m pip install --upgrade pip 2>&1 | Out-Null
-& $pyembed\python.exe -m pip install ./src-tauri "paho-mqtt==2.*" vnpy vnpy_ctp vnpy_spreadtrading
+& $pyembed\python.exe -m pip install ./src-tauri vnpy vnpy_ctp vnpy_spreadtrading
 if ($LASTEXITCODE -ne 0) { throw "pip install 失败" }
 
 # 2.5 生成发行配置（剥离账号/密码，只保留服务器地址等非账号信息）
@@ -32,7 +32,7 @@ Write-Host "[2.5/4] 生成 settings.dist.json（无凭据，临时目录构建�
 $distDir = Join-Path $repo "src-tauri\dist-settings"
 New-Item -ItemType Directory -Force -Path $distDir | Out-Null
 $distCfg = Join-Path $distDir "settings.dist.json"
-& $pyembed\python.exe -c "import json,pathlib; s=json.loads(pathlib.Path(r'$(Join-Path $repo 'config\settings.local.json')').read_text(encoding='utf-8')); s.setdefault('mqtt',{}).update(user='',password=''); s.setdefault('ctp',{}).update({'用户名':'','密码':''}); pathlib.Path(r'$distCfg').write_text(json.dumps(s,ensure_ascii=False,indent=2),encoding='utf-8')"
+& $pyembed\python.exe -c "import json,pathlib; s=json.loads(pathlib.Path(r'$(Join-Path $repo 'config\settings.local.json')').read_text(encoding='utf-8')); s.pop('mqtt',None); s.setdefault('ctp',{}).update({'用户名':'','密码':''}); pathlib.Path(r'$distCfg').write_text(json.dumps(s,ensure_ascii=False,indent=2),encoding='utf-8')"
 if ($LASTEXITCODE -ne 0) { throw "生成发行配置失败" }
 
 # 2.6 清理打包冗余（NSIS 单线程逐文件解包，减文件数与换快解压是唯二杠杆）：
