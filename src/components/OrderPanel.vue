@@ -41,6 +41,15 @@ const precision = computed(() => tickPrecision(tick.value));
 const cur = computed(() => store.spreadQuotes[s.value?.pair]);
 const fmtLive = (v) => (cur.value?.live && v != null ? Number(v).toFixed(precision.value) : "--");
 
+// 腿停滞可视化（2026-10-19 定稿）：停滞时显示各腿停 tick 秒数（远月/收盘可见）；
+// stale=null=从未收到行情。任一腿超阈值即不合成不触发（阈值=设置「行情停滞阈值」）
+const staleText = computed(() => {
+  const c = cur.value;
+  if (!c || c.live) return "";
+  const fmtS = (v) => (v == null ? "无行情" : `停 ${v}s`);
+  return `A ${fmtS(c.stale_a)} · B ${fmtS(c.stale_b)}`;
+});
+
 
 // 差价来源=人工：面板预填策略保存的价；下单时后端自动保存新价回策略。
 // 脏字段保护：用户改过的输入不被策略事件重置——追价期每次 A 腿撤单都推策略更新
@@ -270,6 +279,7 @@ const isClosingOrder = (t) => {
           <label>空平差价</label>
           <a-input-number v-model:value="form.close_short" :step="step" :precision="precision" size="small" style="width: 90px" @change="markDirty('close_short')" />
           <span class="cur" :class="{ off: !cur?.live }" title="实时空开价差（做空触发条件：空开 ≥ 填价；填价 ≤ 当前值即立即触发）">{{ fmtLive(cur?.short_open) }}</span>
+          <span v-if="staleText" class="stale" title="任一腿行情停滞超阈值即不合成不触发（阈值可在设置中调整）；「无行情」=该腿从未收到 tick（远月/夜盘常无行情）">{{ staleText }}</span>
           <a-button size="small" danger :disabled="!(s.held_units < 0)" title="按空平差价挂买回单，份数=单份；多次点击逐份平" @click="closeNow('short')">平仓</a-button>
           <a-button size="small" :disabled="!hasCloseActivity('short')" title="撤销本方向平仓挂单并停止执行中的平仓算法" @click="stopCurrent('short')">停止平仓</a-button>
         </div>
@@ -287,6 +297,7 @@ const isClosingOrder = (t) => {
           <label>多平差价</label>
           <a-input-number v-model:value="form.close_long" :step="step" :precision="precision" size="small" style="width: 90px" @change="markDirty('close_long')" />
           <span class="cur" :class="{ off: !cur?.live }" title="实时多开价差（做多触发条件：多开 ≤ 填价；填价 ≥ 当前值即立即触发）">{{ fmtLive(cur?.long_open) }}</span>
+          <span v-if="staleText" class="stale" title="任一腿行情停滞超阈值即不合成不触发（阈值可在设置中调整）；「无行情」=该腿从未收到 tick（远月/夜盘常无行情）">{{ staleText }}</span>
           <a-button size="small" danger :disabled="!(s.held_units > 0)" title="按多平差价挂卖出单，份数=单份；多次点击逐份平" @click="closeNow('long')">平仓</a-button>
           <a-button size="small" :disabled="!hasCloseActivity('long')" title="撤销本方向平仓挂单并停止执行中的平仓算法" @click="stopCurrent('long')">停止平仓</a-button>
         </div>
@@ -324,6 +335,7 @@ const isClosingOrder = (t) => {
 .line { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; flex-wrap: wrap; }
 .cur { font-size: 12px; color: #389e0d; white-space: nowrap; }
 .cur.off { color: #999; }
+.stale { font-size: 11px; color: #d46b08; white-space: nowrap; }
 .line label { width: 62px; font-size: 12px; color: #666; }
 .triggers { margin-top: 10px; }
 .sec-title { font-size: 12px; color: #999; margin-bottom: 4px; }

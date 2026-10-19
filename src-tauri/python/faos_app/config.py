@@ -60,6 +60,7 @@ class AlgoSettings(BaseModel):
     timeout: int = 300  # 算法看门狗超时（秒，超时停止并告警）
     close_risk_seconds: int = 60  # 收盘前风控提前量（秒；0=关闭风控）
     close_risk_breaks: bool = True  # 小节休息是否也触发
+    stale_seconds: int = 30  # 行情停滞阈值（秒）：任一腿超时即不合成不触发，面板显示各腿停滞秒数
     # 交易时段表（config/market_sessions.json；每段 start/end，end 可为 "次日 H:MM"）
     # 风控=各时段 end 前 N 秒触发。用户在设置抽屉保存后覆盖本字段。
     market_sessions: list[dict] = []  # [{"name":..., "start":"09:00","end":"10:15"}]

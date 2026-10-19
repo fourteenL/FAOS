@@ -117,6 +117,7 @@ async function save() {
               <a-form-item label="超时停止（秒）"><a-input-number v-model:value="form.algo.timeout" :min="10" style="width: 100%" /></a-form-item>
               <a-form-item label="锁仓"><a-switch v-model:checked="form.algo.lock" /></a-form-item>
               <a-form-item label="收盘/休市前风控（秒，0=关）"><a-input-number v-model:value="form.algo.close_risk_seconds" :min="0" :max="600" style="width: 100%" /></a-form-item>
+              <a-form-item label="行情停滞阈值（秒）"><a-input-number v-model:value="form.algo.stale_seconds" :min="5" :max="300" style="width: 100%" /></a-form-item>
               <a-divider orientation="left" plain style="margin: 4px 0">交易时段表（各时段收盘前风控；end 可填「次日 1:00」）</a-divider>
               <div v-for="(sess, i) in form.algo.market_sessions" :key="i" class="sess-row">
                 <a-input v-model:value="sess.name" placeholder="名称" style="width: 96px" size="small" />
