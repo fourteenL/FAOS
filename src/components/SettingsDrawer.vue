@@ -1,14 +1,23 @@
 <script setup>
-import { reactive, ref } from "vue";
+import { computed, reactive, ref } from "vue";
 import { message } from "ant-design-vue";
 import { call } from "../api/pytauri.js";
 
 const visible = ref(false);
 const loading = ref(false);
+const breakTimesText = computed({
+  get: () => (form.algo.close_risk_break_times || []).join(", "),
+  set: (v) => {
+    form.algo.close_risk_break_times = String(v || "")
+      .split(/[,,，\s]+/).map((x) => x.trim()).filter(Boolean);
+  },
+});
+
 const form = reactive({
   ctp: {},
   algo: { payup: 5, interval: 3, lock: false, timeout: 300,
-          close_risk_seconds: 60, close_risk_breaks: true },
+          close_risk_seconds: 60, close_risk_breaks: true,
+          close_risk_break_times: ["10:15", "11:30", "13:30"] },
   log: { days: 15 },
 });
 
@@ -102,7 +111,8 @@ async function save() {
               <a-form-item label="超时停止（秒）"><a-input-number v-model:value="form.algo.timeout" :min="10" style="width: 100%" /></a-form-item>
               <a-form-item label="锁仓"><a-switch v-model:checked="form.algo.lock" /></a-form-item>
               <a-form-item label="收盘/休市前风控（秒，0=关）"><a-input-number v-model:value="form.algo.close_risk_seconds" :min="0" :max="600" style="width: 100%" /></a-form-item>
-              <a-form-item label="小节休息也风控（10:15/11:30/13:30）"><a-switch v-model:checked="form.algo.close_risk_breaks" /></a-form-item>
+              <a-form-item label="小节休息也风控"><a-switch v-model:checked="form.algo.close_risk_breaks" /></a-form-item>
+              <a-form-item label="休市时点（逗号分隔 HH:MM）"><a-input v-model:value="breakTimesText" placeholder="10:15, 11:30, 13:30" /></a-form-item>
             </div>
 
             <a-divider orientation="left" plain>日志</a-divider>

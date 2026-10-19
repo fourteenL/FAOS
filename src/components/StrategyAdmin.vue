@@ -96,15 +96,15 @@ async function saveLots() {
   }
 }
 
-// 份数改动自动保存（防抖 800ms）——夜盘实证：改单份忘点「保存份数」，下单仍是旧份数
-let lotsTimer = null;
+// 份数改动立即保存（2026-10-19 定稿：防抖 800ms 窗口内下单会用旧份数——设2下1/设1下2 的根因）；
+// 仅当值真变且策略未切换时保存（切换引起的表单同步不误存）
 watch(
   () => [lots.single, lots.total, s.value?.id],
-  ([single, total], [oldSingle, oldTotal, oldId]) => {
-    if (oldId == null || single == null || total == null) return;
+  ([single, total, id], [oldSingle, oldTotal, oldId]) => {
+    if (id == null || oldId !== id) return  // 切换策略的表单同步：不保存
     if (single === oldSingle && total === oldTotal) return;
-    clearTimeout(lotsTimer);
-    lotsTimer = setTimeout(() => saveLots(), 800);
+    if (single == null || total == null || single < 1 || total < 1) return
+    saveLots();
   }
 );
 

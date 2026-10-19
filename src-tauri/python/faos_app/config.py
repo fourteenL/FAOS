@@ -59,7 +59,9 @@ class AlgoSettings(BaseModel):
     lock: bool = False  # 是否锁仓
     timeout: int = 300  # 算法看门狗超时（秒，超时停止并告警）
     close_risk_seconds: int = 60  # 收盘前风控提前量（秒；0=关闭风控）
-    close_risk_breaks: bool = True  # 小节休息（10:15/11:30/13:30）是否也触发
+    close_risk_breaks: bool = True  # 小节休息是否也触发
+    # 休市时点表（"HH:MM" 列表；全天收盘固定 15:00/02:30，此表为小节休息可编辑项）
+    close_risk_break_times: list[str] = ["10:15", "11:30", "13:30"]
 
 
 class LogSettings(BaseModel):

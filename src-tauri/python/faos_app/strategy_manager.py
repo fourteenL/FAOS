@@ -538,26 +538,34 @@ class StrategyManager:
 
 # ---- 收盘前风控（2026-10-19 定稿） ----------------------------------------------
 
-# 收盘/小节休息时点（秒）：全天收盘 + 日盘小节休息（10:15/11:30/13:30）
-_CLOSE_POINTS = [
-    (15 * 3600, 9 * 3600, "日盘收盘 15:00"),          # 日盘收盘：9:00–15:00 区间内生效
-    (2 * 3600 + 30 * 60, 21 * 3600, "夜盘收盘 02:30"),  # 夜盘收盘：21:00–次日 02:30
-    (10 * 3600 + 15 * 60, 9 * 3600, "小节休息 10:15"),
-    (11 * 3600 + 30 * 60, 9 * 3600, "午间休息 11:30"),
-    (13 * 3600 + 30 * 60, 9 * 3600 + 30 * 60, "午间休息结束 13:30"),
+# 全天收盘（固定）：日盘 15:00（9:00 起）、夜盘 02:30（21:00 起跨午夜）
+_SESSION_CLOSES = [
+    (15 * 3600, 9 * 3600),
+    (2 * 3600 + 30 * 60, 21 * 3600),
 ]
 
 
-def seconds_to_close(now, window: int = 60, breaks: bool = True) -> Optional[int]:
-    """距最近收盘/小节时点的秒数；时点前 window 秒内返回正数，否则 None。
+def _hm(sec_str: str) -> int:
+    h, m = sec_str.strip().split(":")
+    return int(h) * 3600 + int(m) * 60
 
-    window=风控提前量（默认 60 秒，0=关闭）；breaks=小节休息是否也触发（默认开）。
-    夜盘跨午夜（21:00–24:00 与 0:00–2:30 两个区间）。"""
+
+def seconds_to_close(now, window: int = 60, breaks: bool = True,
+                     break_times: Optional[list] = None) -> Optional[int]:
+    """距最近收盘/休市时点的秒数；时点前 window 秒内返回正数，否则 None。
+
+    全天收盘固定 15:00/02:30；小节休息时点可配（break_times=["10:15",...]，
+    默认 10:15/11:30/13:30；breaks=False 全部跳过）。夜盘跨午夜。"""
     sec_of_day = now.hour * 3600 + now.minute * 60 + now.second
+    points = [(cs, ss) for cs, ss in _SESSION_CLOSES]
+    if breaks:
+        for ts in (break_times or ["10:15", "11:30", "13:30"]):
+            try:
+                points.append((_hm(ts), 9 * 3600))
+            except Exception:
+                continue  # 无效时点配置跳过
     best = None
-    for close_sec, start_sec, _name in _CLOSE_POINTS:
-        if not breaks and "休息" in _name:
-            continue
+    for close_sec, start_sec in points:
         if start_sec == 21 * 3600:  # 夜盘跨午夜
             in_session = sec_of_day >= start_sec or sec_of_day < close_sec
         else:
@@ -568,7 +576,7 @@ def seconds_to_close(now, window: int = 60, breaks: bool = True) -> Optional[int
         if remain <= 0:
             remain += 24 * 3600
         if 0 < remain <= window:
-            best = remain if best is None else min(best, remain)  # 多区间重叠取最近
+            best = remain if best is None else min(best, remain)
     return best
 
 
@@ -585,13 +593,15 @@ class CloseRiskGuard:
     def _cfg(self):
         algo = getattr(self._settings, "algo", None)
         return (getattr(algo, "close_risk_seconds", 60) if algo else 60,
-                getattr(algo, "close_risk_breaks", True) if algo else True)
+                getattr(algo, "close_risk_breaks", True) if algo else True,
+                getattr(algo, "close_risk_break_times", None) if algo else None)
 
     def tick(self, now) -> None:
-        window, breaks = self._cfg()
+        window, breaks, break_times = self._cfg()
         if window <= 0:
             return  # 风控关闭
-        remain = seconds_to_close(now, window=window, breaks=breaks)
+        remain = seconds_to_close(now, window=window, breaks=breaks,
+                                  break_times=break_times)
         if remain is None:
             self._fired_key = None  # 离开窗口 → 复位
             return
@@ -599,11 +609,8 @@ class CloseRiskGuard:
         if self._fired_key == key:
             return
         self._fired_key = key
-        from datetime import datetime as _dt
         from faos_app.log import log
 
-        tname = next((n for cs, ss, n in _CLOSE_POINTS
-                      if ss == 21 * 3600 or True), "")  # 简化：通知里带剩余秒即可
         log(f"FAOS_CLOSE_RISK 时点前 {remain}s 风控触发：停止全部下单并撤所有挂单")
         self._manager.stop_all()
         self._manager.push.notice(
