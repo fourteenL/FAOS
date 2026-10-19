@@ -18,5 +18,5 @@ src/**/__tests__/
 src/test-setup.js
 api.md
 progress.md
-config/settings.dist.json
+src-tauri/dist-settings/
 faos-*.log

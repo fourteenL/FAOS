@@ -35,7 +35,7 @@
                             ],
                    "resources":  {
                                      "pyembed/python":  "./",
-                                     "../config/settings.dist.json":  "config/settings.local.json",
+                                     "dist-settings/settings.dist.json":  "config/settings.local.json",
                                      "../config/contract_seed.json":  "config/contract_seed.json"
                                  },
                    "windows":  {
