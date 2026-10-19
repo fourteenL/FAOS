@@ -66,6 +66,12 @@ class Strategy(BaseModel):
     slip_b: int = 100  # B 腿（被动）滑点，跳（对冲快速成交）
     order_type_a: str = "挂价"  # A 腿报单类型：挂价(排队)/对手价/最新价/市价
     order_type_b: str = "对手价"  # B 腿报单类型
+    # 策略级今昨账本（2026-10-19 定稿，修复平仓归属错位）：本策略自身成交累计的
+    # 各腿今/昨手数（手，非份）——平仓按此显式拆平今/平昨单，不再按账户聚合仓拆
+    # （共享主力腿的两策略各自平仓时账户级拆分会错吃对方的今昨仓）。
+    # 结构：{腿裸符号: {long_td, long_yd, short_td, short_yd}}
+    leg_book: dict = {}
+    book_day: str = ""  # 账本归属交易日（"YYYY-MM-DD"，夜盘 21:00 后归次日）；跨日自动 td→yd
 
     @model_validator(mode="before")
     @classmethod

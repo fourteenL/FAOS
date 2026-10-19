@@ -9,7 +9,8 @@ from dataclasses import asdict
 from typing import Optional
 
 from vnpy.trader.constant import Direction, Status
-from vnpy.trader.event import EVENT_ORDER
+from vnpy.trader.event import EVENT_ORDER, EVENT_TRADE
+from vnpy_spreadtrading import APP_NAME
 from vnpy_spreadtrading.base import EVENT_SPREAD_ALGO, AlgoItem, LegData, SpreadData
 
 from faos_app.models import Strategy, TriggerAction
@@ -57,10 +58,15 @@ class SpreadService:
         self._rearm_fn = None  # 超时重挂回调（main 注入 manager.place_trigger）
         self._algo_latest: dict[str, "AlgoItem"] = {}  # pair -> 最新算法快照（追价文案用）
         self._algo_wait_warned: set = set()  # pair -> 已告警（盘口停滞提醒一次性）
+        # 策略级今昨账本（2026-10-19 定稿，修平仓归属错位）：本策略算法成交入账。
+        # 归属：算法委托 reference="SpreadTrading_{pair}" → 委托号→pair 映射 → 成交入账。
+        self._order_pair: dict[str, str] = {}  # vt_orderid -> pair（算法委托）
+        self._booked_tradeids: set = set()  # 已入账成交号（事件重放去重）
         if event_engine is not None:
             self._install_algo_class()
             event_engine.register(EVENT_SPREAD_ALGO, self._wrap_algo_handler)
             event_engine.register(EVENT_ORDER, self._wrap_algo_handler)
+            event_engine.register(EVENT_TRADE, self._wrap_algo_handler)
 
     def attach(self, engine, event_engine) -> None:
         """main.py 装配时注入真实 SpreadEngine（add_app 返回值）。"""
@@ -68,6 +74,7 @@ class SpreadService:
         self._install_algo_class()
         event_engine.register(EVENT_SPREAD_ALGO, self._wrap_algo_handler)
         event_engine.register(EVENT_ORDER, self._wrap_algo_handler)
+        event_engine.register(EVENT_TRADE, self._wrap_algo_handler)
 
     def _install_algo_class(self) -> None:
         """用 FAOS 定制算法（每腿滑点/报单类型）替换默认 SpreadTaker。"""
@@ -184,6 +191,19 @@ class SpreadService:
         # 平仓通道=按钮专用（2026-10-16 定稿修订）：按挂单 is_close 标记判定，
         # 不再看方向与持仓的关系——手动反向挂单=正常开仓（锁仓，不净任何持仓）
         closing = bool(getattr(trigger, "is_close", False))
+        # 平仓显式今昨拆分（2026-10-19 定稿，修平仓归属错位）：共享主力腿的两策略
+        # 各自平仓时，账户级净仓转换会错吃对方的今昨仓——按本策略账本显式发
+        # 平今/平昨单（先平昨省费）；账本不足的量在算法内回落账户级
+        extra = {
+            "slip_a": strategy.slip_a,
+            "slip_b": strategy.slip_b,
+            "order_type_a": strategy.order_type_a,
+            "order_type_b": strategy.order_type_b,
+        }
+        if closing:
+            split = self._plan_close_split(strategy, trigger)
+            if split:
+                extra["close_split"] = split
         # 策略隔离（2026-10-14 用户实证三问题同根：共享主力腿+净仓转换互相吃腿）：
         # 开仓锁仓（OPEN 永不净转换→上期所双向持仓，各策略腿物理隔离，也避免
         # 平今/平昨错配被柜台拒单）；反向平仓保持净仓（实际对冲本策略两腿）
@@ -195,12 +215,7 @@ class SpreadService:
             payup=self._algo.payup,
             interval=self._algo.interval,
             lock=self._algo.lock or not closing,
-            extra={
-                "slip_a": strategy.slip_a,
-                "slip_b": strategy.slip_b,
-                "order_type_a": strategy.order_type_a,
-                "order_type_b": strategy.order_type_b,
-            },
+            extra=extra,
         )
         if algoid:
             self._algo_started[algoid] = _time.monotonic()
@@ -301,12 +316,19 @@ class SpreadService:
         if hasattr(item, "status") and hasattr(item, "vt_orderid") and not hasattr(item, "algoid"):
             self._process_order_event(item)  # OrderData（EVENT_ORDER）
             return
+        if hasattr(item, "offset") and hasattr(item, "vt_orderid"):
+            self._process_trade_event(item)  # TradeData（EVENT_TRADE）
+            return
         self._process_spread_algo(item)
 
     def _process_order_event(self, order) -> None:
-        """A 腿撤单回报 → 策略风控计数（同单去重）。"""
+        """算法委托回报：登记委托号→策略（供成交入账归属）；撤单回报 → 风控计数（同单去重）。"""
         from vnpy.trader.constant import Status as _Status
 
+        ref = getattr(order, "reference", "") or ""
+        prefix = f"{APP_NAME}_"
+        if ref.startswith(prefix) and order.vt_orderid not in self._order_pair:
+            self._order_pair[order.vt_orderid] = ref[len(prefix):]
         if order.status != _Status.CANCELLED:
             return
         for s in self._store.list() if self._store else []:
@@ -321,6 +343,58 @@ class SpreadService:
             if s.cancel_count_a >= s.max_cancels_a:
                 self._halt_on_cap(s)
             return
+
+    def _process_trade_event(self, trade) -> None:
+        """本策略算法成交 → 策略级今昨账本入账（2026-10-19 定稿，修平仓归属错位）。
+
+        只入账本策略算法的成交（reference 归属）；手动交易/其他终端不动账本，
+        差异由 reconcile_holdings 今昨对账告警兜底。入账前先做跨日结转（夜盘
+        21:00 边界，今日新仓从今仓起算）。"""
+        pair = self._order_pair.get(trade.vt_orderid)
+        if not pair or self._store is None:
+            return
+        if trade.vt_tradeid in self._booked_tradeids:
+            return  # 同一成交重复事件只入一次
+        s = self._store.get_by_pair(pair)
+        if s is None:
+            return
+        from datetime import datetime as _dt
+
+        from faos_app.leg_book import apply_trade_to_book, roll_book
+
+        self._booked_tradeids.add(trade.vt_tradeid)
+        roll_book(s, _dt.now())
+        apply_trade_to_book(s, trade.vt_symbol.split(".")[0],
+                            getattr(trade.direction, "value", trade.direction),
+                            getattr(trade.offset, "value", trade.offset),
+                            trade.volume)
+        self._store.update(s)
+        self._push.strategy(s)
+        from faos_app.log import log
+
+        log(f"FAOS_LEG_BOOK #{s.id} {pair} {trade.vt_symbol} "
+            f"{getattr(trade.direction, 'value', trade.direction)}@"
+            f"{getattr(trade.offset, 'value', trade.offset)} "
+            f"{trade.volume} → {s.leg_book.get(trade.vt_symbol.split('.')[0])}")
+
+    def _plan_close_split(self, strategy: Strategy, trigger) -> Optional[dict]:
+        """平仓显式今昨拆分（2026-10-19 定稿）：按策略账本 ∩ 账户实际，先平昨
+        （上期所平今费率高）后期；账本未建/不足 → None（回落账户级净仓转换，
+        行为与修复前一致，不更差）。"""
+        from datetime import datetime as _dt
+
+        from faos_app.leg_book import plan_close_split, roll_book
+        from faos_app.leg_ops import account_position_book
+
+        roll_book(strategy, _dt.now())
+        try:
+            actual = account_position_book(self._ctp.get_positions())
+        except Exception:
+            return None
+        legs = [(strategy.leg_a, vt_symbol_of(strategy.leg_a)),
+                (strategy.leg_b, vt_symbol_of(strategy.leg_b))]
+        key = "long" if trigger.action == TriggerAction.open_short else "short"
+        return plan_close_split(strategy, actual, legs, key, trigger.lots)
 
     def _process_spread_algo(self, item: AlgoItem) -> None:
         # 盘口停滞提醒：算法跑 20 秒一笔未发（count=秒）→ 大概率某腿无双边报价（死腿/收盘）

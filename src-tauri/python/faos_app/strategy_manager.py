@@ -429,14 +429,20 @@ class StrategyManager:
     def recover(self) -> None:
         """启动恢复：清除运行中算法状态；触发单保留并重挂（armed）；
         旧默认交易参数（5/5/对手价/对手价）归一为新默认（A挂价+0 / B对手价+100）；
+        账本跨日结转（td→yd，2026-10-19：今昨账本驱动平仓拆分）；
         重订全部策略两腿行情（本地价差架构订阅是会话态，不重订则触发永不评估——
         2026-10-12 实证：重启后连主力月都『无报价』）。"""
+        from datetime import datetime as _dt
+        from faos_app.leg_book import roll_book
+
         all_legs = sorted({f"{s.leg_a}.SHFE" for s in self._store.list()}
                           | {f"{s.leg_b}.SHFE" for s in self._store.list()})
         if all_legs:
             self._legs_subscriber(all_legs)  # 网关缓冲到登录后生效
         for s in self._store.list():
             changed = False
+            if roll_book(s, _dt.now()):
+                changed = True
             if (s.slip_a, s.slip_b, s.order_type_a, s.order_type_b) == (5, 5, "对手价", "对手价"):
                 s.slip_a, s.slip_b = 0, 100
                 s.order_type_a, s.order_type_b = "挂价", "对手价"
@@ -514,6 +520,56 @@ class StrategyManager:
                 "账户持仓与策略记录不一致（可能为手动交易/其他终端/中断残留）："
                 + "、".join(diffs)
                 + "。策略持仓以自身成交为准，请人工核对。")
+            return  # 总量已不一致：今昨比较无意义（口径混入手动交易）
+        self._reconcile_today_yesterday(ctp)
+
+    def _reconcile_today_yesterday(self, ctp) -> None:
+        """今昨错位对账（2026-10-19 定稿，配合策略级今昨账本）：总量一致但今昨
+        结构错位才告警——这是平仓归属错位的准确信号（老策略账本未建/手动平今
+        也会触发，点名腿与今昨手数，人工核对）。"""
+        from faos_app.leg_book import roll_book
+        from faos_app.spread_service import vt_symbol_of
+        from datetime import datetime as _dt
+
+        expected: dict = {}  # (vt_symbol, long/short, today/yd) -> 期望手数（策略账本聚合）
+        for s in self._store.list():
+            roll_book(s, _dt.now())  # 对账口径先结转到当前交易日
+            for leg, entry in (s.leg_book or {}).items():
+                for d in ("long", "short"):
+                    expected[(vt_symbol_of(leg), d, "today")] = \
+                        expected.get((vt_symbol_of(leg), d, "today"), 0) + entry[f"{d}_td"]
+                    expected[(vt_symbol_of(leg), d, "yd")] = \
+                        expected.get((vt_symbol_of(leg), d, "yd"), 0) + entry[f"{d}_yd"]
+        if not expected:
+            return  # 无策略建账本（全部空账本）→ 今昨对账无从比起
+
+        actual: dict = {}
+        for p in ctp.get_positions():
+            if not p.volume:
+                continue
+            v = getattr(p.direction, "value", str(p.direction))
+            d = {"多": "long", "空": "short"}.get(v, str(v).lower())
+            if d not in ("long", "short"):
+                continue
+            yd = min(getattr(p, "yd_volume", 0) or 0, p.volume)
+            actual[(p.vt_symbol, d, "yd")] = actual.get((p.vt_symbol, d, "yd"), 0) + yd
+            actual[(p.vt_symbol, d, "today")] = actual.get((p.vt_symbol, d, "today"), 0) + p.volume - yd
+
+        diffs = []
+        for key in sorted(set(expected) | set(actual)):
+            delta = actual.get(key, 0) - expected.get(key, 0)
+            if abs(delta) > 1e-6:
+                sym, d, w = key
+                cn = "多" if d == "long" else "空"
+                wn = "今仓" if w == "today" else "昨仓"
+                diffs.append(f"{sym} {cn}{wn}{delta:+.0f} 手")
+        if diffs:
+            self._push.notice(
+                "warn",
+                "持仓今昨结构与策略账本不一致（策略级今昨账本 2026-10-19 起；老策略或"
+                "手动平今/平昨会产生此差异，不影响总量）："
+                + "、".join(diffs)
+                + "。平仓将按账户实际拆分（回落保护），如需精确归属可在「今昨仓管理」手工对齐。")
 
     # -- 行情驱动 -------------------------------------------------------------
 
