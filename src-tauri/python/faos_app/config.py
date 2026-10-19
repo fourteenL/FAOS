@@ -60,8 +60,9 @@ class AlgoSettings(BaseModel):
     timeout: int = 300  # 算法看门狗超时（秒，超时停止并告警）
     close_risk_seconds: int = 60  # 收盘前风控提前量（秒；0=关闭风控）
     close_risk_breaks: bool = True  # 小节休息是否也触发
-    # 休市时点表（"HH:MM" 列表；全天收盘固定 15:00/02:30，此表为小节休息可编辑项）
-    close_risk_break_times: list[str] = ["10:15", "11:30", "13:30"]
+    # 交易时段表（config/market_sessions.json；每段 start/end，end 可为 "次日 H:MM"）
+    # 风控=各时段 end 前 N 秒触发。用户在设置抽屉保存后覆盖本字段。
+    market_sessions: list[dict] = []  # [{"name":..., "start":"09:00","end":"10:15"}]
 
 
 class LogSettings(BaseModel):

@@ -5,19 +5,25 @@ import { call } from "../api/pytauri.js";
 
 const visible = ref(false);
 const loading = ref(false);
-const breakTimesText = computed({
-  get: () => (form.algo.close_risk_break_times || []).join(", "),
-  set: (v) => {
-    form.algo.close_risk_break_times = String(v || "")
-      .split(/[,,，\s]+/).map((x) => x.trim()).filter(Boolean);
-  },
-});
+function addSession() {
+  form.algo.market_sessions.push({ name: "", start: "", end: "" });
+}
+function removeSession(i) {
+  form.algo.market_sessions.splice(i, 1);
+}
+
 
 const form = reactive({
   ctp: {},
   algo: { payup: 5, interval: 3, lock: false, timeout: 300,
-          close_risk_seconds: 60, close_risk_breaks: true,
-          close_risk_break_times: ["10:15", "11:30", "13:30"] },
+          close_risk_seconds: 60,
+          market_sessions: [
+            { name: "日盘第一节", start: "09:00", end: "10:15" },
+            { name: "日盘第二节", start: "10:30", end: "11:30" },
+            { name: "日盘第三节", start: "13:30", end: "15:00" },
+            { name: "夜盘-有色", start: "21:00", end: "次日 1:00" },
+            { name: "夜盘-贵金属", start: "21:00", end: "次日 2:30" },
+          ] },
   log: { days: 15 },
 });
 
@@ -111,8 +117,15 @@ async function save() {
               <a-form-item label="超时停止（秒）"><a-input-number v-model:value="form.algo.timeout" :min="10" style="width: 100%" /></a-form-item>
               <a-form-item label="锁仓"><a-switch v-model:checked="form.algo.lock" /></a-form-item>
               <a-form-item label="收盘/休市前风控（秒，0=关）"><a-input-number v-model:value="form.algo.close_risk_seconds" :min="0" :max="600" style="width: 100%" /></a-form-item>
-              <a-form-item label="小节休息也风控"><a-switch v-model:checked="form.algo.close_risk_breaks" /></a-form-item>
-              <a-form-item label="休市时点（逗号分隔 HH:MM）"><a-input v-model:value="breakTimesText" placeholder="10:15, 11:30, 13:30" /></a-form-item>
+              <a-divider orientation="left" plain style="margin: 4px 0">交易时段表（各时段收盘前风控；end 可填「次日 1:00」）</a-divider>
+              <div v-for="(sess, i) in form.algo.market_sessions" :key="i" class="sess-row">
+                <a-input v-model:value="sess.name" placeholder="名称" style="width: 96px" size="small" />
+                <a-input v-model:value="sess.start" placeholder="09:00" style="width: 64px" size="small" />
+                <span>→</span>
+                <a-input v-model:value="sess.end" placeholder="10:15 / 次日 1:00" style="width: 110px" size="small" />
+                <a @click="removeSession(i)" style="color: #cf1322">删</a>
+              </div>
+              <a-button size="small" style="margin-top: 4px" @click="addSession">+ 添加时段</a-button>
             </div>
 
             <a-divider orientation="left" plain>日志</a-divider>
@@ -143,4 +156,6 @@ async function save() {
 .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0 12px; }
 .span2 { grid-column: span 2; }
 .fbtns { display: flex; gap: 8px; justify-content: flex-end; margin-top: 10px; }
+.sess-row { display: flex; gap: 6px; align-items: center; margin-bottom: 4px; }
+.sess-row span { color: #999; }
 </style>

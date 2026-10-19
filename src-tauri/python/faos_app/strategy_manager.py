@@ -538,43 +538,67 @@ class StrategyManager:
 
 # ---- 收盘前风控（2026-10-19 定稿） ----------------------------------------------
 
-# 全天收盘（固定）：日盘 15:00（9:00 起）、夜盘 02:30（21:00 起跨午夜）
-_SESSION_CLOSES = [
-    (15 * 3600, 9 * 3600),
-    (2 * 3600 + 30 * 60, 21 * 3600),
+DEFAULT_SESSIONS = [
+    {"name": "日盘第一节", "start": "09:00", "end": "10:15"},
+    {"name": "日盘第二节", "start": "10:30", "end": "11:30"},
+    {"name": "日盘第三节", "start": "13:30", "end": "15:00"},
+    {"name": "夜盘-有色", "start": "21:00", "end": "次日 1:00"},
+    {"name": "夜盘-贵金属", "start": "21:00", "end": "次日 2:30"},
 ]
 
 
 def _hm(sec_str: str) -> int:
-    h, m = sec_str.strip().split(":")
+    """"H:MM" / "次日 H:MM" → 当天秒数（次日=次日时钟的实际时刻）。"""
+    t = str(sec_str).strip().replace("次日", "").strip()
+    h, m = t.split(":")
     return int(h) * 3600 + int(m) * 60
 
 
-def seconds_to_close(now, window: int = 60, breaks: bool = True,
-                     break_times: Optional[list] = None) -> Optional[int]:
-    """距最近收盘/休市时点的秒数；时点前 window 秒内返回正数，否则 None。
+def _cross_midnight(end_str: str) -> bool:
+    return "次日" in str(end_str)
 
-    全天收盘固定 15:00/02:30；小节休息时点可配（break_times=["10:15",...]，
-    默认 10:15/11:30/13:30；breaks=False 全部跳过）。夜盘跨午夜。"""
+
+def load_market_sessions(extra_dirs=None) -> list:
+    """时段表：config/market_sessions.json（可手工编辑）> 内置默认。"""
+    import json as _json
+    from pathlib import Path as _Path
+    from faos_app.config import default_data_dir
+    candidates = [default_data_dir() / "market_sessions.json"]
+    if extra_dirs:
+        candidates += [_Path(d) / "market_sessions.json" for d in extra_dirs]
+    for f in candidates:
+        try:
+            if f.exists():
+                data = _json.loads(f.read_text(encoding="utf-8"))
+                sessions = data.get("sessions") if isinstance(data, dict) else data
+                if isinstance(sessions, list) and sessions:
+                    return sessions
+        except Exception:
+            continue
+    return DEFAULT_SESSIONS
+
+
+def seconds_to_close(now, window: int = 60, sessions: Optional[list] = None) -> Optional[int]:
+    """距最近时段收盘的秒数；各时段 end 前 window 秒内返回最小正数，否则 None。
+
+    时段来自 market_sessions.json（含小节休息与夜盘跨午夜"次日 H:MM"）。"""
     sec_of_day = now.hour * 3600 + now.minute * 60 + now.second
-    points = [(cs, ss) for cs, ss in _SESSION_CLOSES]
-    if breaks:
-        for ts in (break_times or ["10:15", "11:30", "13:30"]):
-            try:
-                points.append((_hm(ts), 9 * 3600))
-            except Exception:
-                continue  # 无效时点配置跳过
     best = None
-    for close_sec, start_sec in points:
-        if start_sec == 21 * 3600:  # 夜盘跨午夜
-            in_session = sec_of_day >= start_sec or sec_of_day < close_sec
+    for sess in (sessions if sessions is not None else DEFAULT_SESSIONS):
+        try:
+            start_sec = _hm(sess["start"])
+            end_sec = _hm(sess["end"])
+        except Exception:
+            continue  # 无效时段配置跳过
+        cross = _cross_midnight(sess["end"])
+        if cross:
+            in_session = sec_of_day >= start_sec or sec_of_day < end_sec
+            remain = (end_sec - sec_of_day) % (24 * 3600)
         else:
-            in_session = start_sec <= sec_of_day < close_sec
+            in_session = start_sec <= sec_of_day < end_sec
+            remain = end_sec - sec_of_day
         if not in_session:
             continue
-        remain = close_sec - sec_of_day
-        if remain <= 0:
-            remain += 24 * 3600
         if 0 < remain <= window:
             best = remain if best is None else min(best, remain)
     return best
@@ -592,16 +616,17 @@ class CloseRiskGuard:
 
     def _cfg(self):
         algo = getattr(self._settings, "algo", None)
-        return (getattr(algo, "close_risk_seconds", 60) if algo else 60,
-                getattr(algo, "close_risk_breaks", True) if algo else True,
-                getattr(algo, "close_risk_break_times", None) if algo else None)
+        window = getattr(algo, "close_risk_seconds", 60) if algo else 60
+        sessions = getattr(algo, "market_sessions", None) if algo else None
+        if not sessions:  # 设置未覆盖 → 仓库/APPDATA 内置时段表文件
+            sessions = load_market_sessions()
+        return window, sessions
 
     def tick(self, now) -> None:
-        window, breaks, break_times = self._cfg()
+        window, sessions = self._cfg()
         if window <= 0:
             return  # 风控关闭
-        remain = seconds_to_close(now, window=window, breaks=breaks,
-                                  break_times=break_times)
+        remain = seconds_to_close(now, window=window, sessions=sessions)
         if remain is None:
             self._fired_key = None  # 离开窗口 → 复位
             return
