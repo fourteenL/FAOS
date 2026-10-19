@@ -535,3 +535,60 @@ class StrategyManager:
     def _product_of(pair: str) -> str:
         leg = pair.partition("&")[0]
         return "".join(ch for ch in leg if ch.isalpha())
+
+# ---- 收盘前风控（2026-10-19 定稿） ----------------------------------------------
+
+_CLOSE_TIMES = [(15, 0), (2, 30)]  # 日盘收盘 / 夜盘收盘（凌晨归前一交易日）
+
+
+def seconds_to_close(now) -> Optional[int]:
+    """距最近全天收盘的秒数；仅收盘前 30 秒内返回正数，否则 None。
+
+    两处收盘：日盘 15:00（9:00 起的日间时段）、夜盘 02:30（21:00 起含凌晨）。
+    小节休息（10:15/11:30/13:30）不风控——只防全天收盘的流动性枯竭与结算切换。"""
+    mins = now.hour * 60 + now.minute
+    sec_of_day = mins * 60 + now.second
+    checks = []  # (收盘秒数, 该收盘归属的时段起点)
+    checks.append((15 * 3600, 9 * 3600))          # 日盘收盘：9:00–15:00
+    checks.append((2 * 3600 + 30 * 60, 21 * 3600))  # 夜盘收盘：21:00–次日 02:30
+    for close_sec, start_sec in checks:
+        if start_sec == 21 * 3600:
+            # 夜盘跨午夜：21:00–24:00 与 0:00–2:30 两个区间
+            in_session = sec_of_day >= start_sec or sec_of_day < close_sec
+        else:
+            in_session = start_sec <= sec_of_day < close_sec
+        if not in_session:
+            continue
+        remain = close_sec - sec_of_day
+        if remain <= 0:  # 夜盘凌晨区间 remain 为负（close 在当天 0 点后小值）
+            remain += 24 * 3600
+        if 0 < remain <= 30:
+            return remain
+        return None
+    return None
+
+
+class CloseRiskGuard:
+    """收盘前 30 秒自动 stop_all（撤所有触发单+停所有算法，持仓保留）并提醒一次。"""
+
+    def __init__(self, manager):
+        self._manager = manager
+        self._fired = False  # 窗口内只动作一次；收盘后复位
+
+    def tick(self, remaining_fn) -> None:
+        """每秒巡检：remaining_fn() 返回 seconds_to_close 或 None。"""
+        remain = remaining_fn()
+        if remain is None:
+            self._fired = False  # 离开窗口（已收盘）→ 复位，下一交易日可再触发
+            return
+        if self._fired:
+            return
+        self._fired = True
+        from faos_app.log import log
+
+        log(f"FAOS_CLOSE_RISK 收盘前 {remain}s 风控触发：停止全部下单并撤所有挂单")
+        self._manager.stop_all()
+        self._manager.push.notice(
+            "warn",
+            f"收盘前风险控制：距收盘 {remain} 秒，已自动停止全部下单并撤销所有挂单"
+            "（持仓保留）——收盘前 30 秒流动性枯竭，请勿再挂新单")

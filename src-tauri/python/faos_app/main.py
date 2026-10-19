@@ -72,6 +72,23 @@ def _build_services(settings: Settings, portal, pusher: Pusher) -> AppState:
         manager.on_direction_stop_hooks.append(spread_service.stop_algos_direction)  # 方向级停止同步停该侧算法
         spread_service.set_strategy_stopper(manager.stop)  # A 腿撤单触限 → 停策略（撤单在 service 内兜底）
         spread_service.set_rearm_fn(manager.place_trigger)  # 追价超时零成交 → 原价重挂触发单
+
+        # 收盘前 30 秒风控：自动停全部下单+撤所有挂单并提醒（2026-10-19 定稿）
+        from faos_app.strategy_manager import CloseRiskGuard, seconds_to_close
+        from datetime import datetime as _dt
+        close_risk = CloseRiskGuard(manager)
+
+        async def _close_risk_loop():
+            import anyio
+
+            while True:
+                await anyio.sleep(1)
+                try:
+                    close_risk.tick(lambda: seconds_to_close(_dt.now()))
+                except Exception:
+                    pass
+
+        portal.start_task_soon(_close_risk_loop)
         spread_service.start_watchdog(portal)  # 追价超时看门狗
 
         # 本地价差合成：两腿 tick → 四向价差 → 触发监控（替代原 MQTT 行情推送）
