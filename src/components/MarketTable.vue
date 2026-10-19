@@ -51,8 +51,11 @@ function legPos(row, leg, dir) {
 // 仓位单元格：非零标红加粗，零仓显示 --
 function posCell(row, leg, dir) {
   const v = legPos(row, leg, dir);
+  // 2026-10-19 定稿：按策略方向着色——做空=A空仓/B多仓红、做多=A多仓/B空仓绿
+  const held = row.held_units || 0;
+  const dirCls = held < 0 ? "pos-hold-short" : "pos-hold-long";
   return { text: v > 0 ? v : "--", hold: v > 0,
-           cls: v > 0 ? ["pos-hold", dir === "short" ? "pos-short" : "pos-long"] : [] };
+           cls: v > 0 ? ["pos-hold", dirCls] : [] };
 }
 
 function fmt(v) {
@@ -194,8 +197,8 @@ const rows = computed(() => {
 .dir-short { color: #cf1322; font-weight: 600; }  /* 做空=红 */
 .dir-both { color: #1677ff; font-weight: 600; }   /* 空多（双向）=蓝 */
 .pos-hold { font-weight: 600; }                 /* 仓位非零加粗 */
-.pos-short { color: #389e0d; }  /* 空头持仓=绿（2026-10-17 定稿） */
-.pos-long { color: #cf1322; }   /* 多头持仓=红 */
+.pos-hold-short { color: #cf1322; }  /* 做空持仓（A空/B多）=红（2026-10-19 定稿） */
+.pos-hold-long { color: #389e0d; }   /* 做多持仓（A多/B空）=绿 */
 .mkt-open { color: #389e0d; font-weight: 600; }   /* 交易时段：策略号绿 */
 .mkt-closed { color: #cf1322; font-weight: 600; } /* 休市：策略号红 */
 :deep(td) { font-variant-numeric: tabular-nums; }  /* 等宽数字：位数变化不改变单元格宽度 */
