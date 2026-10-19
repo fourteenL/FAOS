@@ -58,6 +58,8 @@ class AlgoSettings(BaseModel):
     interval: int = 3  # 算法轮询间隔（秒）
     lock: bool = False  # 是否锁仓
     timeout: int = 300  # 算法看门狗超时（秒，超时停止并告警）
+    close_risk_seconds: int = 60  # 收盘前风控提前量（秒；0=关闭风控）
+    close_risk_breaks: bool = True  # 小节休息（10:15/11:30/13:30）是否也触发
 
 
 class LogSettings(BaseModel):

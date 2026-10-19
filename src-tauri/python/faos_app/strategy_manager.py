@@ -538,57 +538,75 @@ class StrategyManager:
 
 # ---- 收盘前风控（2026-10-19 定稿） ----------------------------------------------
 
-_CLOSE_TIMES = [(15, 0), (2, 30)]  # 日盘收盘 / 夜盘收盘（凌晨归前一交易日）
+# 收盘/小节休息时点（秒）：全天收盘 + 日盘小节休息（10:15/11:30/13:30）
+_CLOSE_POINTS = [
+    (15 * 3600, 9 * 3600, "日盘收盘 15:00"),          # 日盘收盘：9:00–15:00 区间内生效
+    (2 * 3600 + 30 * 60, 21 * 3600, "夜盘收盘 02:30"),  # 夜盘收盘：21:00–次日 02:30
+    (10 * 3600 + 15 * 60, 9 * 3600, "小节休息 10:15"),
+    (11 * 3600 + 30 * 60, 9 * 3600, "午间休息 11:30"),
+    (13 * 3600 + 30 * 60, 9 * 3600 + 30 * 60, "午间休息结束 13:30"),
+]
 
 
-def seconds_to_close(now) -> Optional[int]:
-    """距最近全天收盘的秒数；仅收盘前 30 秒内返回正数，否则 None。
+def seconds_to_close(now, window: int = 60, breaks: bool = True) -> Optional[int]:
+    """距最近收盘/小节时点的秒数；时点前 window 秒内返回正数，否则 None。
 
-    两处收盘：日盘 15:00（9:00 起的日间时段）、夜盘 02:30（21:00 起含凌晨）。
-    小节休息（10:15/11:30/13:30）不风控——只防全天收盘的流动性枯竭与结算切换。"""
-    mins = now.hour * 60 + now.minute
-    sec_of_day = mins * 60 + now.second
-    checks = []  # (收盘秒数, 该收盘归属的时段起点)
-    checks.append((15 * 3600, 9 * 3600))          # 日盘收盘：9:00–15:00
-    checks.append((2 * 3600 + 30 * 60, 21 * 3600))  # 夜盘收盘：21:00–次日 02:30
-    for close_sec, start_sec in checks:
-        if start_sec == 21 * 3600:
-            # 夜盘跨午夜：21:00–24:00 与 0:00–2:30 两个区间
+    window=风控提前量（默认 60 秒，0=关闭）；breaks=小节休息是否也触发（默认开）。
+    夜盘跨午夜（21:00–24:00 与 0:00–2:30 两个区间）。"""
+    sec_of_day = now.hour * 3600 + now.minute * 60 + now.second
+    best = None
+    for close_sec, start_sec, _name in _CLOSE_POINTS:
+        if not breaks and "休息" in _name:
+            continue
+        if start_sec == 21 * 3600:  # 夜盘跨午夜
             in_session = sec_of_day >= start_sec or sec_of_day < close_sec
         else:
             in_session = start_sec <= sec_of_day < close_sec
         if not in_session:
             continue
         remain = close_sec - sec_of_day
-        if remain <= 0:  # 夜盘凌晨区间 remain 为负（close 在当天 0 点后小值）
+        if remain <= 0:
             remain += 24 * 3600
-        if 0 < remain <= 30:
-            return remain
-        return None
-    return None
+        if 0 < remain <= window:
+            best = remain if best is None else min(best, remain)  # 多区间重叠取最近
+    return best
 
 
 class CloseRiskGuard:
-    """收盘前 30 秒自动 stop_all（撤所有触发单+停所有算法，持仓保留）并提醒一次。"""
+    """时点前（默认 60 秒，可配）自动 stop_all（撤所有触发单+停所有算法，持仓保留）并提醒一次。
 
-    def __init__(self, manager):
+    settings 读取：algo.close_risk_seconds（提前量，0=关闭）、algo.close_risk_breaks（小节休息触发）。"""
+
+    def __init__(self, manager, settings=None):
         self._manager = manager
-        self._fired = False  # 窗口内只动作一次；收盘后复位
+        self._settings = settings
+        self._fired_key = None  # (触发时点秒数) 窗口内只动作一次；离开复位
 
-    def tick(self, remaining_fn) -> None:
-        """每秒巡检：remaining_fn() 返回 seconds_to_close 或 None。"""
-        remain = remaining_fn()
+    def _cfg(self):
+        algo = getattr(self._settings, "algo", None)
+        return (getattr(algo, "close_risk_seconds", 60) if algo else 60,
+                getattr(algo, "close_risk_breaks", True) if algo else True)
+
+    def tick(self, now) -> None:
+        window, breaks = self._cfg()
+        if window <= 0:
+            return  # 风控关闭
+        remain = seconds_to_close(now, window=window, breaks=breaks)
         if remain is None:
-            self._fired = False  # 离开窗口（已收盘）→ 复位，下一交易日可再触发
+            self._fired_key = None  # 离开窗口 → 复位
             return
-        if self._fired:
+        key = (now.hour, now.minute // 10)  # 同一窗口内去重（10 分钟桶）
+        if self._fired_key == key:
             return
-        self._fired = True
+        self._fired_key = key
+        from datetime import datetime as _dt
         from faos_app.log import log
 
-        log(f"FAOS_CLOSE_RISK 收盘前 {remain}s 风控触发：停止全部下单并撤所有挂单")
+        tname = next((n for cs, ss, n in _CLOSE_POINTS
+                      if ss == 21 * 3600 or True), "")  # 简化：通知里带剩余秒即可
+        log(f"FAOS_CLOSE_RISK 时点前 {remain}s 风控触发：停止全部下单并撤所有挂单")
         self._manager.stop_all()
         self._manager.push.notice(
             "warn",
-            f"收盘前风险控制：距收盘 {remain} 秒，已自动停止全部下单并撤销所有挂单"
-            "（持仓保留）——收盘前 30 秒流动性枯竭，请勿再挂新单")
+            f"收盘/休市风险控制：距时点 {remain} 秒，已自动停止全部下单并撤销所有挂单"
+            "（持仓保留）——临近收盘/休市流动性枯竭，请勿再挂新单")

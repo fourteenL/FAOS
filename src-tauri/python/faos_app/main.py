@@ -74,9 +74,9 @@ def _build_services(settings: Settings, portal, pusher: Pusher) -> AppState:
         spread_service.set_rearm_fn(manager.place_trigger)  # 追价超时零成交 → 原价重挂触发单
 
         # 收盘前 30 秒风控：自动停全部下单+撤所有挂单并提醒（2026-10-19 定稿）
-        from faos_app.strategy_manager import CloseRiskGuard, seconds_to_close
+        from faos_app.strategy_manager import CloseRiskGuard
         from datetime import datetime as _dt
-        close_risk = CloseRiskGuard(manager)
+        close_risk = CloseRiskGuard(manager, settings)
 
         async def _close_risk_loop():
             import anyio
@@ -84,7 +84,7 @@ def _build_services(settings: Settings, portal, pusher: Pusher) -> AppState:
             while True:
                 await anyio.sleep(1)
                 try:
-                    close_risk.tick(lambda: seconds_to_close(_dt.now()))
+                    close_risk.tick(_dt.now())
                 except Exception:
                     pass
 
