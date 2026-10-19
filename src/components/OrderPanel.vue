@@ -100,8 +100,8 @@ const openTriggerOf = (action) => s.value?.triggers.find((t) => t.action === act
 
 const OPEN_INPUT = { open_short: "open_short", open_long: "open_long" };
 
-// 平仓=反向启动（空平/多平按钮已移除），开/平两框不再有比较对象——不做倒挂校验：
-// 用户自定触发价（如填高价尽快触发平仓）是合法意图
+// 平仓唯一入口=反向区「平仓」按钮（is_close 通道）；反方向挂单=正常开仓锁仓
+// （2026-10-19 夜盘实测后终稿：上期所双向持仓=设计效果，反向置灰一律移除）
 async function doPlace(action, spread, replaceTriggerId) {
   const companion = action === "open_short" ? form.close_short
     : action === "open_long" ? form.close_long : null;  // 开仓时对应平仓价一并保存
@@ -124,35 +124,12 @@ async function doPlace(action, spread, replaceTriggerId) {
   }
 }
 
-// 平仓=反向开仓：持反向仓时空框提示给平仓指引（2026-10-13 实测用户卡在空框无日志可查）
-function emptyInputHint(action) {
-  const held = s.value?.held_units || 0;
-  if (action === "open_long" && held < 0)
-    return "持空仓：反方向挂单已停用，平仓请用做空区「平仓」按钮";
-  if (action === "open_short" && held > 0)
-    return "持多仓：反方向挂单已停用，平仓请用做多区「平仓」按钮";
-  return null;
-}
-
-// 反方向挂单停用（2026-10-19 定稿）：持空仓时做多区启动/修改置灰（平仓只走按钮）
-const reverseBlocked = (action) => {
-  const held = s.value?.held_units || 0;
-  return (action === "open_long" && held < 0) || (action === "open_short" && held > 0);
-};
-const reverseTip = (action) => {
-  const held = s.value?.held_units || 0;
-  return held === 0 ? "" : `持${held < 0 ? "空" : "多"}仓：反方向挂单已停用，平仓请用${held < 0 ? "做空" : "做多"}区「平仓」按钮`;
-};
-
-// 启动：每方向一张开仓挂单（做空/做多可并存）；同方向已有未触发挂单提示改用「修改」
+// 启动：每方向一张开仓挂单（做空/做多可并存，含持反向仓时的反向开仓=锁仓）；
+// 同方向已有未触发挂单提示改用「修改」
 async function start(action) {
   const spread = form[OPEN_INPUT[action]];
   if (spread == null) {
-    message.warning(emptyInputHint(action) || "请填写触发差价");
-    return;
-  }
-  if (reverseBlocked(action)) {
-    message.warning(reverseTip(action));
+    message.warning("请填写触发差价");
     return;
   }
   if (openTriggerOf(action)) {
@@ -169,10 +146,6 @@ async function modify(action) {
   const spread = form[OPEN_INPUT[action]];
   if (spread == null) {
     message.warning("请填写触发差价");
-    return;
-  }
-  if (reverseBlocked(action)) {
-    message.warning(reverseTip(action));
     return;
   }
   const old = openTriggerOf(action);
@@ -255,12 +228,6 @@ function fmt(v) {
 }
 
 const ACTION_ZH = { open_short: "做空开", open_long: "做多开", close_short: "空平", close_long: "多平" };
-
-// 平仓=反向开仓（用户定稿 2026-10-13）：持仓为反向的开仓挂单标注（平仓）
-const isClosingOrder = (t) => {
-  const held = s.value?.held_units || 0;
-  return (held < 0 && t.action === "open_long") || (held > 0 && t.action === "open_short");
-};
 </script>
 
 <template>
@@ -271,8 +238,8 @@ const isClosingOrder = (t) => {
         <div class="line">
           <label>空开差价</label>
           <a-input-number v-model:value="form.open_short" :step="step" :precision="precision" size="small" style="width: 90px" @change="markDirty('open_short')" />
-          <a-button size="small" type="primary" danger :disabled="reverseBlocked('open_short')" :title="reverseTip('open_short')" @click="start('open_short')">启动</a-button>
-          <a-button size="small" :disabled="reverseBlocked('open_short')" @click="modify('open_short')">修改</a-button>
+          <a-button size="small" type="primary" danger @click="start('open_short')">启动</a-button>
+          <a-button size="small" @click="modify('open_short')">修改</a-button>
           <a-button size="small" :disabled="stopDisabled('short')" @click="stopCurrent('short')">停止</a-button>
         </div>
         <div class="line">
@@ -289,8 +256,8 @@ const isClosingOrder = (t) => {
         <div class="line">
           <label>多开差价</label>
           <a-input-number v-model:value="form.open_long" :step="step" :precision="precision" size="small" style="width: 90px" @change="markDirty('open_long')" />
-          <a-button size="small" type="primary" :disabled="reverseBlocked('open_long')" :title="reverseTip('open_long')" @click="start('open_long')">启动</a-button>
-          <a-button size="small" :disabled="reverseBlocked('open_long')" @click="modify('open_long')">修改</a-button>
+          <a-button size="small" type="primary" @click="start('open_long')">启动</a-button>
+          <a-button size="small" @click="modify('open_long')">修改</a-button>
           <a-button size="small" :disabled="stopDisabled('long')" @click="stopCurrent('long')">停止</a-button>
         </div>
         <div class="line">
@@ -309,7 +276,7 @@ const isClosingOrder = (t) => {
       <div v-if="!s.triggers.length" class="muted">无挂单</div>
       <div v-for="t in s.triggers" :key="t.trigger_id" class="row">
         <span>
-          {{ ACTION_ZH[t.action] }}{{ isClosingOrder(t) ? "（平仓）" : "" }}
+          {{ ACTION_ZH[t.action] }}{{ t.is_close ? "（平仓）" : "" }}
           差价 {{ fmt(t.spread) }} × {{ t.lots }} 份
         </span>
         <a @click="cancelTrigger(t.trigger_id)">取消</a>

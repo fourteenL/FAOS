@@ -250,6 +250,10 @@ class StrategyManager:
     def stop(self, strategy_id: int) -> Strategy:
         """停止：撤触发单+停算法，策略保持在线（active）——重启式下单需可再挂单。"""
         s = self._require(strategy_id)
+        from faos_app.log import log
+
+        log(f"FAOS_OP #{strategy_id} {s.pair} 停止策略（撤挂单 "
+            f"{[(t.action.value, t.spread) for t in s.triggers] or '无'}+停算法 {s.active_algos or '无'}，持仓保留）")
         for hook in self.on_stop_hooks:
             hook(s)
         s.triggers = []
@@ -270,6 +274,9 @@ class StrategyManager:
 
     def stop_all(self) -> list[Strategy]:
         """一键停止全部策略（撤触发单+停算法，持仓保留，策略保持在线）。"""
+        from faos_app.log import log
+
+        log(f"FAOS_OP 全部停止（{len(self._store.list())} 个策略，撤挂单+停算法，持仓保留）")
         for s in list(self._store.list()):
             self.stop(s.id)
         return self._store.list()
@@ -306,6 +313,10 @@ class StrategyManager:
         if side not in ("short", "long"):
             raise ValueError(f"未知方向: {side}")
         s = self._require(strategy_id)
+        from faos_app.log import log
+
+        log(f"FAOS_OP #{strategy_id} {s.pair} 停止{'做空' if side == 'short' else '做多'}侧"
+            f"（撤挂单+停该侧算法，持仓保留）")
         side_actions = {
             "short": {TriggerAction.open_short, TriggerAction.close_short},
             "long": {TriggerAction.open_long, TriggerAction.close_long},
@@ -323,6 +334,7 @@ class StrategyManager:
     def set_lots(self, strategy_id: int, single_lots: Optional[float] = None,
                  total_lots: Optional[float] = None) -> Strategy:
         s = self._require(strategy_id)
+        old = (s.single_lots, s.total_lots)
         if single_lots is not None:
             if single_lots <= 0:
                 raise ValueError("单份必须为正数")
@@ -333,6 +345,10 @@ class StrategyManager:
             s.total_lots = total_lots
         if s.single_lots > s.total_lots:
             raise ValueError("单份不能大于总份")
+        from faos_app.log import log
+
+        log(f"FAOS_OP #{strategy_id} {s.pair} 设置份数 单份/总份 {old[0]:g}/{old[1]:g} → "
+            f"{s.single_lots:g}/{s.total_lots:g}")
         self._store.update(s)
         self._push.strategy(s)
         return s
@@ -346,7 +362,8 @@ class StrategyManager:
         """挂触发单；被拒（重复/超总份/无持仓等）时写 FAOS_TRIGGER_REJECT 日志再抛出。
 
         2026-10-13 实测教训：用户平仓被拒但 faos.log 无痕迹，问题无法定位——
-        被拒的挂单必须留证据。replace_trigger_id=修改挂单价场景（净敞口按新旧差值计）。"""
+        被拒的挂单必须留证据（REJECT 带持仓/总份上下文）。replace_trigger_id=
+        修改挂单价场景（净敞口按新旧差值计）。"""
         try:
             return self._place_trigger(strategy_id, action, spread, lots, companion_spread,
                                        replace_trigger_id, is_close_order)
@@ -354,7 +371,9 @@ class StrategyManager:
             from faos_app.log import log
 
             log(f"FAOS_TRIGGER_REJECT #{strategy_id} {action.value}@{spread} "
-                f"lots={lots if lots is not None else '默认'} {e}")
+                f"lots={lots if lots is not None else '默认'} {e} "
+                f"[held={self._require(strategy_id).held_units:+g} 总份={self._require(strategy_id).total_lots:g} "
+                f"挂单={[(t.action.value, t.spread) for t in self._require(strategy_id).triggers] or '无'}]")
             raise
 
     def _place_trigger(self, strategy_id: int, action: TriggerAction, spread: float,
@@ -367,15 +386,11 @@ class StrategyManager:
         lots = s.single_lots if lots is None else lots
         if lots <= 0:
             raise ValueError("手数必须为正数")
-        # 平仓唯一入口=「平仓」按钮（2026-10-19 用户第三次澄清定稿）：持仓位时反方向
-        # 挂单一律拒绝并指向按钮——教训史：①按方向自动猜平仓→互吃腿；②反向挂单按
-        # 正常开仓锁仓→柜台双向留存而净持仓归零+界面显示"平仓中"误导（10-19 实证）
-        if action in _OPEN_ACTIONS and not is_close_order:
-            if ((action == TriggerAction.open_long and s.held_units < 0)
-                    or (action == TriggerAction.open_short and s.held_units > 0)):
-                raise ValueError(
-                    f"持{'空' if s.held_units < 0 else '多'}仓的反方向挂单已停用——"
-                    f"请使用{'做空' if s.held_units < 0 else '做多'}区「平仓」按钮平仓")
+        # 开平语义第五次演进（2026-10-19 夜盘实测后用户终稿）：反方向挂单恢复为
+        # 正常开仓（上期所双向锁仓=设计效果，与同向加仓一致）；平仓唯一入口仍是
+        # 「平仓」按钮的 is_close 通道。此前当日曾停用反方向（防程序猜平仓意图），
+        # 实测用户持仓位时反向开单被一律拦下（faos.log 21:31 REJECT 实证）——
+        # 误导源是 UI 按持仓方向猜「平仓」标注，改为按单据 is_close 真实通道标注。
         same = next((t for t in s.triggers if t.action == action), None)
         if same is not None and same.trigger_id != replace_trigger_id:
             if action in _OPEN_ACTIONS:
@@ -405,7 +420,8 @@ class StrategyManager:
             setattr(s, _CLOSE_COMPANION[action], companion_spread)
         from faos_app.log import log
 
-        log(f"FAOS_TRIGGER_PLACED #{s.id} {s.pair} {action.value}@{spread} lots={lots}")
+        log(f"FAOS_TRIGGER_PLACED #{s.id} {s.pair} {action.value}@{spread} lots={lots}"
+            f"{'（平仓通道）' if is_close_order else ''}")
         t = Trigger(trigger_id=f"t{uuid4().hex[:8]}", action=action, spread=spread, lots=lots,
                     is_close=is_close_order)
         s.triggers.append(t)
@@ -417,7 +433,13 @@ class StrategyManager:
 
     def cancel_trigger(self, strategy_id: int, trigger_id: str) -> Strategy:
         s = self._require(strategy_id)
-        s.triggers = [t for t in s.triggers if t.trigger_id != trigger_id]
+        t = next((x for x in s.triggers if x.trigger_id == trigger_id), None)
+        if t is not None:
+            from faos_app.log import log
+
+            log(f"FAOS_OP #{strategy_id} {s.pair} 撤销挂单 {t.action.value}@{t.spread}"
+                f"{'（平仓通道）' if t.is_close else ''}")
+        s.triggers = [t2 for t2 in s.triggers if t2.trigger_id != trigger_id]
         if s.status == StrategyStatus.armed and not s.triggers:
             s.status = StrategyStatus.active
         self._store.update(s)
