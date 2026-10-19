@@ -119,17 +119,31 @@ async function doPlace(action, spread, replaceTriggerId) {
 function emptyInputHint(action) {
   const held = s.value?.held_units || 0;
   if (action === "open_long" && held < 0)
-    return "持空仓：此处为正常多开单（锁仓开仓，不自动平仓）；平仓请用做空区「平仓」按钮";
+    return "持空仓：反方向挂单已停用，平仓请用做空区「平仓」按钮";
   if (action === "open_short" && held > 0)
-    return "持多仓：此处为正常空开单（锁仓开仓，不自动平仓）；平仓请用做多区「平仓」按钮";
+    return "持多仓：反方向挂单已停用，平仓请用做多区「平仓」按钮";
   return null;
 }
+
+// 反方向挂单停用（2026-10-19 定稿）：持空仓时做多区启动/修改置灰（平仓只走按钮）
+const reverseBlocked = (action) => {
+  const held = s.value?.held_units || 0;
+  return (action === "open_long" && held < 0) || (action === "open_short" && held > 0);
+};
+const reverseTip = (action) => {
+  const held = s.value?.held_units || 0;
+  return held === 0 ? "" : `持${held < 0 ? "空" : "多"}仓：反方向挂单已停用，平仓请用${held < 0 ? "做空" : "做多"}区「平仓」按钮`;
+};
 
 // 启动：每方向一张开仓挂单（做空/做多可并存）；同方向已有未触发挂单提示改用「修改」
 async function start(action) {
   const spread = form[OPEN_INPUT[action]];
   if (spread == null) {
     message.warning(emptyInputHint(action) || "请填写触发差价");
+    return;
+  }
+  if (reverseBlocked(action)) {
+    message.warning(reverseTip(action));
     return;
   }
   if (openTriggerOf(action)) {
@@ -146,6 +160,10 @@ async function modify(action) {
   const spread = form[OPEN_INPUT[action]];
   if (spread == null) {
     message.warning("请填写触发差价");
+    return;
+  }
+  if (reverseBlocked(action)) {
+    message.warning(reverseTip(action));
     return;
   }
   const old = openTriggerOf(action);
@@ -244,8 +262,8 @@ const isClosingOrder = (t) => {
         <div class="line">
           <label>空开差价</label>
           <a-input-number v-model:value="form.open_short" :step="step" :precision="precision" size="small" style="width: 90px" @change="markDirty('open_short')" />
-          <a-button size="small" type="primary" danger @click="start('open_short')">启动</a-button>
-          <a-button size="small" @click="modify('open_short')">修改</a-button>
+          <a-button size="small" type="primary" danger :disabled="reverseBlocked('open_short')" :title="reverseTip('open_short')" @click="start('open_short')">启动</a-button>
+          <a-button size="small" :disabled="reverseBlocked('open_short')" @click="modify('open_short')">修改</a-button>
           <a-button size="small" :disabled="stopDisabled('short')" @click="stopCurrent('short')">停止</a-button>
         </div>
         <div class="line">
@@ -261,8 +279,8 @@ const isClosingOrder = (t) => {
         <div class="line">
           <label>多开差价</label>
           <a-input-number v-model:value="form.open_long" :step="step" :precision="precision" size="small" style="width: 90px" @change="markDirty('open_long')" />
-          <a-button size="small" type="primary" @click="start('open_long')">启动</a-button>
-          <a-button size="small" @click="modify('open_long')">修改</a-button>
+          <a-button size="small" type="primary" :disabled="reverseBlocked('open_long')" :title="reverseTip('open_long')" @click="start('open_long')">启动</a-button>
+          <a-button size="small" :disabled="reverseBlocked('open_long')" @click="modify('open_long')">修改</a-button>
           <a-button size="small" :disabled="stopDisabled('long')" @click="stopCurrent('long')">停止</a-button>
         </div>
         <div class="line">
