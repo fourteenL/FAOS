@@ -50,7 +50,9 @@ class Strategy(BaseModel):
     total_lots: float = 1
     status: StrategyStatus = StrategyStatus.unsubscribed
     triggers: list[Trigger] = []
-    held_units: float = 0  # 已开价差份数（净）
+    held_units: float = 0  # 已开价差净份数（=多头份-空头份；锁仓时双向并存净额会归零）
+    held_long_units: float = 0   # 多头价差份（做多开仓累计，2026-10-20：锁仓可见——净额口径表达不了双向持仓）
+    held_short_units: float = 0  # 空头价差份（做空开仓累计）
     active_algos: list[str] = []
     executing_action: Optional[str] = None  # 执行中的动作（挂单→执行→成交全程方向可见；算法结束清除）
     # 人工填入的策略价差（行情推送退役后差价来源=手动；下单时自动保存到对应字段）
@@ -76,11 +78,16 @@ class Strategy(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def _migrate_order_type(cls, data):
-        """旧记录的统一 order_type 迁移为 A/B 两字段。"""
-        if isinstance(data, dict) and "order_type" in data:
-            old = data.pop("order_type")
-            data.setdefault("order_type_a", old)
-            data.setdefault("order_type_b", old)
+        """旧记录迁移：统一 order_type 拆 A/B 两字段；held_units 净额拆双向份（锁仓可见）。"""
+        if isinstance(data, dict):
+            if "order_type" in data:
+                old = data.pop("order_type")
+                data.setdefault("order_type_a", old)
+                data.setdefault("order_type_b", old)
+            if "held_long_units" not in data and "held_units" in data:
+                held = float(data.get("held_units") or 0)
+                data["held_long_units"] = max(held, 0)
+                data["held_short_units"] = max(-held, 0)
         return data
     created_at: str = Field(default_factory=lambda: datetime.now().isoformat(timespec="seconds"))
 

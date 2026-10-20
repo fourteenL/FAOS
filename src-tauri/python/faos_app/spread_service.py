@@ -452,9 +452,31 @@ class SpreadService:
         from faos_app.log import log
 
         log(f"FAOS_ALGO_DONE {item.spread_name} {item.status.value} traded={item.traded_volume}")
-        signed = item.traded_volume if item.direction == Direction.LONG else -item.traded_volume
-        s.held_units = round(s.held_units + signed, 6)
+        # 双向记账（2026-10-20 定稿，修「锁仓数据对冲消失」）：多头份/空头份分别累计，
+        # 净额=long-short 重算——反向开仓成交后净额归零但双向份并存（锁仓可见）
+        if item.direction == Direction.LONG:
+            s.held_long_units = round(s.held_long_units + item.traded_volume, 6)
+        else:
+            s.held_short_units = round(s.held_short_units + item.traded_volume, 6)
+        s.held_units = round(s.held_long_units - s.held_short_units, 6)
         self._store.update(s)
         self._push.strategy(s)
+        # 停止/超时路径的部分成交：两腿可能未对冲完（单腿敞口）——点名提醒核对
+        if item.status == Status.CANCELLED and item.traded_volume > 0:
+            self._push.notice(
+                "warn",
+                f"{item.spread_name} 算法停止时已成交 {item.traded_volume:.0f} 份，"
+                "两腿可能未全部对冲（单腿敞口），请在腿部卡片/无限易核对持仓")
         if self._monitor is not None:
             self._monitor.on_algo_finished(s.id, item.algoid)
+
+    def pending_units(self, strategy_id: int) -> float:
+        """该策略在途算法的净敞口份数（已启动未完成）——挂单净额校验计入
+        （2026-10-20 实证：执行中 held 未更新，1 秒内双挂同向单 → 总份 1 开成 2 份）。"""
+        total = 0.0
+        for algoid, rearm in self._algo_rearm.items():
+            sid, action, _, lots = rearm
+            if sid != strategy_id:
+                continue
+            total += lots if _ACTION_DIRECTION[action] == Direction.LONG else -lots
+        return round(total, 6)

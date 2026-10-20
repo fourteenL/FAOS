@@ -14,6 +14,14 @@ const form = reactive({ slip_a: 0, slip_b: 100, order_type_a: "挂价", order_ty
 const risk = reactive({ max_cancels_a: 2000 });
 const lots = reactive({ single: 1, total: 10 });
 const legPos = ref(null);  // A/B 腿持仓快照（今昨拆分，10s 轮询）
+
+// 持仓文案（2026-10-20：锁仓可见——净额口径下反向开仓后净 0 但双向份并存）
+function holdTxt(row) {
+  const net = row.held_units || 0;
+  const lock = Math.min(row.held_long_units || 0, row.held_short_units || 0);
+  const base = net < 0 ? "空头价差" : net > 0 ? "多头价差" : "无";
+  return `净持仓 ${Math.abs(net)} 份（${base}${lock > 0 ? `，锁仓 ${lock} 份` : ""}）`;
+}
 // 平到目标：输入框预填当前持仓，改小的差额即平仓量（null=未同步，按钮前置空不可点）
 const tgt = reactive({
   A: { long_today: null, long_yd: null, short_today: null, short_yd: null },
@@ -147,7 +155,7 @@ async function removeStrategy() {
       <div class="head">
         <span class="sid" :class="market.value ? 'mkt-open' : 'mkt-closed'">策略号 #{{ s.id }}</span>
         <span class="pair">{{ s.pair }}</span>
-        <span class="muted">净持仓 {{ Math.abs(s.held_units) }} 份（{{ s.held_units < 0 ? "空头价差" : s.held_units > 0 ? "多头价差" : "无" }}）</span>
+        <span class="muted">{{ holdTxt(s) }}</span>
       </div>
 
       <div class="row2">
@@ -224,7 +232,7 @@ async function removeStrategy() {
         </div>
         <a-button size="small" type="primary" @click="saveLots">保存份数</a-button>
       </div>
-      <p class="hint">净持仓 {{ Math.abs(s.held_units) }} 份（{{ s.held_units < 0 ? "空头价差" : s.held_units > 0 ? "多头价差" : "无" }}），上限校验：开仓成交后 |净持仓| ≤ 总份（做空/做多可双向同时挂单，按净额校验）。</p>
+      <p class="hint">{{ holdTxt(s) }}，上限校验：开仓成交后 |净持仓+在途| ≤ 总份（做空/做多可双向同时挂单，按净额校验）。</p>
     </template>
     <div v-else class="placeholder">点击上方表格选择一个策略后在此管理</div>
   </div>

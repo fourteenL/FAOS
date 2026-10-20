@@ -59,6 +59,10 @@ def _now() -> str:
     return datetime.now().isoformat(timespec="seconds")
 
 
+def _pending_txt(v: float) -> str:
+    return f"{v:+g} 份" if abs(v) > 1e-9 else "0"
+
+
 class StrategyManager:
     def __init__(self, store: StrategyStore, push,
                  legs_subscriber: Optional[Callable[[list], None]] = None,
@@ -71,6 +75,7 @@ class StrategyManager:
         self._contracts_provider = contracts_provider or (lambda: [])      # vnpy 合约列表（品种展开用）
         self._contract_stale_notifier = contract_stale_notifier or (lambda product: None)
         self._settings = settings
+        self._pending_units_provider = None  # 在途算法净敞口查询（main 注入 spread_service.pending_units）
         self._dominant_hints: dict[str, dict] = {}  # product -> {vt_symbol: 持仓量}（市场实测）
         # 停止策略时的扩展点（T10 的 spread_service 注册撤算法钩子）
         self.on_stop_hooks: list[Callable[[Strategy], None]] = []
@@ -85,6 +90,18 @@ class StrategyManager:
     @property
     def push(self):
         return self._push
+
+    def set_pending_units_provider(self, fn) -> None:
+        """在途算法净敞口查询注入（main 装配：spread_service.pending_units）。"""
+        self._pending_units_provider = fn
+
+    def _pending_units(self, strategy_id: int) -> float:
+        if self._pending_units_provider is None:
+            return 0.0
+        try:
+            return float(self._pending_units_provider(strategy_id) or 0)
+        except Exception:
+            return 0.0
 
     # -- 创建 / 生命周期 ------------------------------------------------------
 
@@ -386,6 +403,12 @@ class StrategyManager:
         lots = s.single_lots if lots is None else lots
         if lots <= 0:
             raise ValueError("手数必须为正数")
+        # 平仓份数封顶持仓（2026-10-20 实证「持 1 平 2 → 溢出量走净仓转换开新仓」：
+        # 单腿+错向敞口）——平仓按钮通道一律 clamp 到当前净持仓份数，无仓拒单
+        if is_close_order and action in _OPEN_ACTIONS:
+            if abs(s.held_units) < 1e-9:
+                raise ValueError("无价差持仓可平（净持仓为 0；锁仓请先用反向开仓/今昨仓管理处理）")
+            lots = min(lots, abs(s.held_units))
         # 开平语义第五次演进（2026-10-19 夜盘实测后用户终稿）：反方向挂单恢复为
         # 正常开仓（上期所双向锁仓=设计效果，与同向加仓一致）；平仓唯一入口仍是
         # 「平仓」按钮的 is_close 通道。此前当日曾停用反方向（防程序猜平仓意图），
@@ -403,7 +426,8 @@ class StrategyManager:
         if action in _OPEN_ACTIONS:
             # 总份按净额校验（与交易所双向净仓一致）：对向开仓（含反向平仓）不占新额度；
             # 修改挂单价（replace）时旧挂单将被撤掉——净敞口按新旧差值计
-            # （2026-10-15 夜盘实证：持仓满份时改自己挂单的价被误拒，只能调总份绕过）
+            # （2026-10-15 夜盘实证：持仓满份时改自己挂单的价被误拒，只能调总份绕过）；
+            # 在途算法计入（2026-10-20 实证：执行中 held 未更新，1 秒双挂 → 总份 1 开成 2 份）
             effective = lots
             if replace_trigger_id is not None:
                 old_t = next((t for t in s.triggers
@@ -411,10 +435,11 @@ class StrategyManager:
                 if old_t is not None:
                     effective = lots - old_t.lots
             signed = effective if action == TriggerAction.open_long else -effective
-            after = round(s.held_units + signed, 6)
+            after = round(s.held_units + signed + self._pending_units(s.id), 6)
             if abs(after) > s.total_lots:
                 raise ValueError(
-                    f"超出总份限制：成交后净持仓 {after:+g} 份 > 总份 {s.total_lots:g} 份")
+                    f"超出总份限制：成交后净持仓 {after:+g} 份（含在途 {_pending_txt(self._pending_units(s.id))}）"
+                    f" > 总份 {s.total_lots:g} 份")
         setattr(s, _MANUAL_FIELD[action], spread)  # 下单价保存进策略价差（行情退役后差价来源=人工）
         if companion_spread is not None:  # 开仓下单时对应平仓价一并保存（用户定稿）
             setattr(s, _CLOSE_COMPANION[action], companion_spread)

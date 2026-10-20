@@ -13,12 +13,15 @@ onUnmounted(market.stop);
 // 方向标签：平仓优先识别（2026-10-13 用户定稿：持空+多开单=平仓中，不再显示歧义的"空多"）
 function directionOf(row) {
   const held = row.held_units || 0;
+  const long = row.held_long_units || 0;
+  const short = row.held_short_units || 0;
   const armed = (action) => (row.triggers || []).some((t) => t.action === action);
   const exec = row.executing_action;
   if (held < 0 && (armed("open_long") || exec === "open_long"))
     return { label: "做空·平仓中", cls: "dir-short" };
   if (held > 0 && (armed("open_short") || exec === "open_short"))
     return { label: "做多·平仓中", cls: "dir-long" };
+  if (long > 0 && short > 0) return { label: "空多·锁仓", cls: "dir-both" };  // 双向持仓并存（2026-10-20：净额看不到）
   const hasLong = held > 0 || armed("open_long") || exec === "open_long";
   const hasShort = held < 0 || armed("open_short") || exec === "open_short";
   if (hasLong && hasShort) return { label: "空多", cls: "dir-both" };
@@ -35,25 +38,26 @@ function rowBg(row) {
   return "";
 }
 
-// 策略归属的腿仓位：held_units × 单份数 推导两腿持仓（仅本行下单产生的仓位在此行显示）
+// 策略归属的腿仓位：双向份 × 单份数 推导（2026-10-20：锁仓时双向并存，
+// 净额口径会把腿仓全显示成 0——「数据对冲消失」的表格表现）
 function legPos(row, leg, dir) {
-  const held = row.held_units || 0;
-  const vol = Math.abs(held) * (row.single_lots || 1);
-  if (held < 0) { // 做空价差：A 空头 + B 多头
-    return (leg === "a" && dir === "short") || (leg === "b" && dir === "long") ? vol : 0;
-  }
-  if (held > 0) { // 做多价差：A 多头 + B 空头
-    return (leg === "a" && dir === "long") || (leg === "b" && dir === "short") ? vol : 0;
-  }
-  return 0;
+  const longVol = (row.held_long_units || 0) * (row.single_lots || 1);
+  const shortVol = (row.held_short_units || 0) * (row.single_lots || 1);
+  let v = 0;
+  if (leg === "a" && dir === "short") v += shortVol;  // 做空价差：A 空头
+  if (leg === "b" && dir === "long") v += shortVol;   // B 多头
+  if (leg === "a" && dir === "long") v += longVol;    // 做多价差：A 多头
+  if (leg === "b" && dir === "short") v += longVol;   // B 空头
+  return v;
 }
 
 // 仓位单元格：非零标红加粗，零仓显示 --
 function posCell(row, leg, dir) {
   const v = legPos(row, leg, dir);
-  // 2026-10-19 定稿：按策略方向着色——做空=A空仓/B多仓红、做多=A多仓/B空仓绿
+  // 2026-10-19 定稿：按策略方向着色——做空=A空仓/B多仓红、做多=A多仓/B空仓绿；
+  // 锁仓（净 0 双向并存）不加方向色，非零即显
   const held = row.held_units || 0;
-  const dirCls = held < 0 ? "pos-hold-short" : "pos-hold-long";
+  const dirCls = held < 0 ? "pos-hold-short" : held > 0 ? "pos-hold-long" : "";
   return { text: v > 0 ? v : "--", hold: v > 0,
            cls: v > 0 ? ["pos-hold", dirCls] : [] };
 }

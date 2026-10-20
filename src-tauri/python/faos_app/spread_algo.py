@@ -69,6 +69,28 @@ class FaosTakerAlgo(SpreadTakerAlgo):
         passive_total = sum(n for sym, n in self.leg_sends.items() if sym != active)
         return FaosAlgoItem(**asdict(base), chase_a=self.leg_sends.get(active, 0), chase_b=passive_total)
 
+    def on_tick(self, tick) -> None:
+        """停止=真停（2026-10-20 用户实证「停不下来」）：基类停止后仍继续补被动腿
+        直到对冲完成（无限易挂单不断），此处停止后不再发任何新单——残留单腿敞口
+        由 SpreadService 部分成交提醒点名，人工处理。"""
+        if self.stopped:
+            return
+        super().on_tick(tick)
+
+    def on_order(self, order) -> None:
+        if self.stopped:
+            return  # 停止后撤单回报不再触发补腿
+        super().on_order(order)
+
+    def check_algo_cancelled(self) -> None:
+        """停止即终结（不等对冲完成——基类条件含 is_hedge_finished 会永远停不下来）。"""
+        from vnpy.trader.constant import Status as _Status
+
+        if self.stopped and self.is_order_finished():
+            self.status = _Status.CANCELLED
+            self.write_log("算法已停止（停止即终结，不再补腿；未对冲敞口请人工核对）")
+            self.put_event()
+
     def on_trade(self, trade) -> None:
         """平仓拆分算法：按成交 Offset 累计本算法已成交的今/昨量（重发时重算剩余）。"""
         plan = (self.extra or {}).get("close_split", {})
