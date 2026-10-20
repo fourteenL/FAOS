@@ -237,12 +237,28 @@ class SpreadService:
         strategy.active_algos = []
 
     def stop_algos_direction(self, strategy: Strategy, side: str) -> None:
-        """方向级停止：仅停止 side（"short"|"long"）方向的运行中算法。"""
+        """方向级停止：仅停止归属 side（"short"|"long"）的运行中算法。
+
+        归属（2026-10-20 夜盘实证修订）：平仓通道算法反向归属——平空仓的
+        open_long(LONG) 算法属做空侧（用户在做空区操作平仓），平多仓的
+        open_short(SHORT) 算法属做多侧；普通算法按 direction 本侧。
+        （旧逻辑按 direction 直判：平空算法被归做多侧 → 做空区停止无效。）"""
         from vnpy.trader.constant import Direction
 
-        want = Direction.LONG if side == "long" else Direction.SHORT
+        def algo_on_side(algoid) -> bool:
+            action = self._algo_action.get(algoid)
+            closing = self._algo_close_mark.get(algoid, False)
+            d = self._algo_direction.get(algoid)
+            base = "long" if d == Direction.LONG else "short"
+            if action is None or not closing:
+                return base == side
+            action_base = "long" if action == TriggerAction.open_long else "short"
+            if action in (TriggerAction.open_long, TriggerAction.open_short):
+                return action_base != side  # 平仓通道反向单：反转归属
+            return base == side
+
         for algoid in list(strategy.active_algos):
-            if self._algo_direction.get(algoid) != want:
+            if not algo_on_side(algoid):
                 continue
             if self._engine is not None:
                 self._engine.stop_algo(algoid)

@@ -38,11 +38,11 @@ function rowBg(row) {
   return "";
 }
 
-// 策略归属的腿仓位：双向份 × 单份数 推导（2026-10-20：锁仓时双向并存，
-// 净额口径会把腿仓全显示成 0——「数据对冲消失」的表格表现）
+// 策略归属的腿仓位：双向份推导（2026-10-20：锁仓时双向并存；份数单位=手——
+// 挂单 lots 即手数，历史版本误再乘单份导致「开 4 手显示 8」）
 function legPos(row, leg, dir) {
-  const longVol = (row.held_long_units || 0) * (row.single_lots || 1);
-  const shortVol = (row.held_short_units || 0) * (row.single_lots || 1);
+  const longVol = row.held_long_units || 0;
+  const shortVol = row.held_short_units || 0;
   let v = 0;
   if (leg === "a" && dir === "short") v += shortVol;  // 做空价差：A 空头
   if (leg === "b" && dir === "long") v += shortVol;   // B 多头

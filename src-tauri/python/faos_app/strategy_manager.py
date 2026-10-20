@@ -326,7 +326,11 @@ class StrategyManager:
         return s
 
     def stop_direction(self, strategy_id: int, side: str) -> Strategy:
-        """方向级停止：撤销该方向触发单（做空侧=空开+空平），停该方向算法，持仓保留。"""
+        """方向级停止：撤销该侧触发单，停该侧算法，持仓保留。
+
+        归属侧（2026-10-20 夜盘实证修订）：平仓通道单反向归属——平空仓挂的
+        open_long(is_close) 属做空侧（用户在做空区点平仓/停止平仓），平多仓的
+        open_short(is_close) 属做多侧；普通开仓挂单按 action 本侧。"""
         if side not in ("short", "long"):
             raise ValueError(f"未知方向: {side}")
         s = self._require(strategy_id)
@@ -334,11 +338,14 @@ class StrategyManager:
 
         log(f"FAOS_OP #{strategy_id} {s.pair} 停止{'做空' if side == 'short' else '做多'}侧"
             f"（撤挂单+停该侧算法，持仓保留）")
-        side_actions = {
-            "short": {TriggerAction.open_short, TriggerAction.close_short},
-            "long": {TriggerAction.open_long, TriggerAction.close_long},
-        }[side]
-        s.triggers = [t for t in s.triggers if t.action not in side_actions]
+
+        def on_side(action_value: str, is_close: bool) -> bool:
+            base = "short" if action_value in ("open_short", "close_short") else "long"
+            if not is_close or action_value not in ("open_short", "open_long"):
+                return base == side  # 普通挂单/原生平仓动作按本侧
+            return base != side  # 平仓通道反向单：反转归属（平空=open_long→做空侧）
+
+        s.triggers = [t for t in s.triggers if not on_side(t.action.value, bool(t.is_close))]
         for hook in self.on_direction_stop_hooks:
             hook(s, side)
         if not s.active_algos:
@@ -404,11 +411,14 @@ class StrategyManager:
         if lots <= 0:
             raise ValueError("手数必须为正数")
         # 平仓份数封顶持仓（2026-10-20 实证「持 1 平 2 → 溢出量走净仓转换开新仓」：
-        # 单腿+错向敞口）——平仓按钮通道一律 clamp 到当前净持仓份数，无仓拒单
+        # 单腿+错向敞口）——平仓按钮通道一律 clamp 到该方向持仓份数，无仓拒单。
+        # 2026-10-20 夜盘修订：按方向双向份（锁仓时净额=0 会误拒双向持仓的平仓）
         if is_close_order and action in _OPEN_ACTIONS:
-            if abs(s.held_units) < 1e-9:
-                raise ValueError("无价差持仓可平（净持仓为 0；锁仓请先用反向开仓/今昨仓管理处理）")
-            lots = min(lots, abs(s.held_units))
+            pool = (s.held_short_units if action == TriggerAction.open_long
+                    else s.held_long_units)  # 平空=买回消耗空头份；平多=卖出消耗多头份
+            if pool < 1e-9:
+                raise ValueError("该方向无价差持仓可平")
+            lots = min(lots, pool)
         # 开平语义第五次演进（2026-10-19 夜盘实测后用户终稿）：反方向挂单恢复为
         # 正常开仓（上期所双向锁仓=设计效果，与同向加仓一致）；平仓唯一入口仍是
         # 「平仓」按钮的 is_close 通道。此前当日曾停用反方向（防程序猜平仓意图），
@@ -543,15 +553,16 @@ class StrategyManager:
                     total += p.volume
             return total
 
-        expected: dict = {}  # (vt_symbol, long/short) -> 期望手数（策略自身成交推导）
+        expected: dict = {}  # (vt_symbol, long/short) -> 期望手数（策略双向份推导，单位=手）
         for s in self._store.list():
-            vol = abs(s.held_units) * (s.single_lots or 1)
-            if vol <= 0:
+            lv, sv = s.held_long_units, s.held_short_units
+            if lv <= 0 and sv <= 0:
                 continue
             a, b = vt_symbol_of(s.leg_a), vt_symbol_of(s.leg_b)
-            a_side, b_side = ("short", "long") if s.held_units < 0 else ("long", "short")
-            expected[(a, a_side)] = expected.get((a, a_side), 0) + vol
-            expected[(b, b_side)] = expected.get((b, b_side), 0) + vol
+            expected[(a, "long")] = expected.get((a, "long"), 0) + lv   # 做多份：A 多
+            expected[(a, "short")] = expected.get((a, "short"), 0) + sv  # 做空份：A 空
+            expected[(b, "short")] = expected.get((b, "short"), 0) + lv  # B 空
+            expected[(b, "long")] = expected.get((b, "long"), 0) + sv    # B 多
 
         symbols = {sym for sym, _ in expected}
         symbols |= {p.vt_symbol for p in ctp.get_positions() if p.volume}

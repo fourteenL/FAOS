@@ -176,8 +176,9 @@ function hasCloseActivity(side) {
 // 份数=策略管理的单份（每次触发手数，多次点击逐份平）；不自动取价；同向旧挂单自动替换。
 async function closeNow(side) {
   const st = s.value;
-  const held = st?.held_units || 0;
-  if (!(side === "short" ? held < 0 : held > 0)) {
+  // 按方向双向份（2026-10-20 夜盘修订：锁仓时净额=0，按净额会误判无仓）
+  const pool = side === "short" ? (st?.held_short_units || 0) : (st?.held_long_units || 0);
+  if (!(pool > 0)) {
     message.warning("无对应持仓可平");
     return;
   }
@@ -247,7 +248,7 @@ const ACTION_ZH = { open_short: "做空开", open_long: "做多开", close_short
           <a-input-number v-model:value="form.close_short" :step="step" :precision="precision" size="small" style="width: 90px" @change="markDirty('close_short')" />
           <span class="cur" :class="{ off: !cur?.live }" title="实时空开价差（做空触发条件：空开 ≥ 填价；填价 ≤ 当前值即立即触发）">{{ fmtLive(cur?.short_open) }}</span>
           <span v-if="staleText" class="stale" title="任一腿行情停滞超阈值即不合成不触发（阈值可在设置中调整）；「无行情」=该腿从未收到 tick（远月/夜盘常无行情）">{{ staleText }}</span>
-          <a-button size="small" danger :disabled="!(s.held_units < 0)" title="按空平差价挂买回单，份数=单份；多次点击逐份平" @click="closeNow('short')">平仓</a-button>
+          <a-button size="small" danger :disabled="!(s.held_short_units > 0)" title="按空平差价挂买回单，份数=单份（封顶空头持仓）；多次点击逐份平" @click="closeNow('short')">平仓</a-button>
           <a-button size="small" :disabled="!hasCloseActivity('short')" title="撤销本方向平仓挂单并停止执行中的平仓算法" @click="stopCurrent('short')">停止平仓</a-button>
         </div>
       </div>
@@ -265,7 +266,7 @@ const ACTION_ZH = { open_short: "做空开", open_long: "做多开", close_short
           <a-input-number v-model:value="form.close_long" :step="step" :precision="precision" size="small" style="width: 90px" @change="markDirty('close_long')" />
           <span class="cur" :class="{ off: !cur?.live }" title="实时多开价差（做多触发条件：多开 ≤ 填价；填价 ≥ 当前值即立即触发）">{{ fmtLive(cur?.long_open) }}</span>
           <span v-if="staleText" class="stale" title="任一腿行情停滞超阈值即不合成不触发（阈值可在设置中调整）；「无行情」=该腿从未收到 tick（远月/夜盘常无行情）">{{ staleText }}</span>
-          <a-button size="small" danger :disabled="!(s.held_units > 0)" title="按多平差价挂卖出单，份数=单份；多次点击逐份平" @click="closeNow('long')">平仓</a-button>
+          <a-button size="small" danger :disabled="!(s.held_long_units > 0)" title="按多平差价挂卖出单，份数=单份（封顶多头持仓）；多次点击逐份平" @click="closeNow('long')">平仓</a-button>
           <a-button size="small" :disabled="!hasCloseActivity('long')" title="撤销本方向平仓挂单并停止执行中的平仓算法" @click="stopCurrent('long')">停止平仓</a-button>
         </div>
       </div>

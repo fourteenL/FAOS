@@ -69,6 +69,16 @@ class FaosTakerAlgo(SpreadTakerAlgo):
         passive_total = sum(n for sym, n in self.leg_sends.items() if sym != active)
         return FaosAlgoItem(**asdict(base), chase_a=self.leg_sends.get(active, 0), chase_b=passive_total)
 
+    def take_active_leg(self) -> None:
+        """主动腿一次报全量（2026-10-20 夜盘实证：基类按盘口量分轮——单份 2 被
+        拆成 1+1 两轮报单凑）。限价追价模式下超盘口量可排队/追价，无需分轮；
+        B 腿对冲按 A 成交量一次全量发。"""
+        active_symbol = self.spread.active_leg.vt_symbol
+        spread_volume_left = self.target - self.traded
+        leg_order_volume = self.spread.calculate_leg_volume(active_symbol, spread_volume_left)
+        if leg_order_volume:
+            self.send_leg_order(active_symbol, leg_order_volume)
+
     def on_tick(self, tick) -> None:
         """停止=真停（2026-10-20 用户实证「停不下来」）：基类停止后仍继续补被动腿
         直到对冲完成（无限易挂单不断），此处停止后不再发任何新单——残留单腿敞口
