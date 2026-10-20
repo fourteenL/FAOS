@@ -86,5 +86,10 @@ $env:PYO3_PYTHON = "$pyembed\python.exe"
 npm run tauri -- build --config=src-tauri/tauri.bundle.json --bundles nsis -- --profile bundle-release
 if ($LASTEXITCODE -ne 0) { throw "tauri build 失败" }
 
+# 5. 构建后清理临时发行配置（NSIS 已嵌入安装包，磁盘不留中间产物；
+#    2026-10-20 补：注释一直声称自动清理但缺此步骤，dist-settings 磁盘残留）
+Remove-Item -Recurse -Force $distDir -ErrorAction SilentlyContinue
+Write-Host "已清理临时目录 $distDir"
+
 Pop-Location
 Write-Host "`n完成。安装包位于 src-tauri\target\bundle-release\bundle\nsis\"
