@@ -100,7 +100,7 @@ def _build_services(settings: Settings, portal, pusher: Pusher) -> AppState:
 
         state.leg_ops = LegOps(ctp, store, chasing_provider=spread_service.chasing_texts)
         # CTP 就绪（合约查询完成）后经 portal 串行化做持仓校正
-        ctp.on_ready = lambda: portal.start_task_soon(_on_ctp_ready, manager, ctp)
+        ctp.on_ready = lambda: portal.start_task_soon(_on_ctp_ready, state, ctp)
     except Exception as e:  # CTP 初始化失败不阻塞应用启动
         pusher.notice("error", f"CTP 初始化失败: {e}")
         log(f"FAOS_CTP_INIT_FAIL {e}")
@@ -108,8 +108,10 @@ def _build_services(settings: Settings, portal, pusher: Pusher) -> AppState:
     return state
 
 
-def _on_ctp_ready(manager, ctp) -> None:
-    """CTP 就绪（合约加载完成）：刷新合约种子 + 重订行情（兜底）+ 持仓校正。"""
+def _on_ctp_ready(state, ctp) -> None:
+    """CTP 就绪（合约加载完成）：刷新合约种子 + 重订行情（兜底）+
+    清理上一柜台会话残留挂单（同账号异地登录/异常退出遗留）+ 持仓校正。"""
+    manager = state.manager
     try:
         n = ctp.refresh_contract_seed()
         if n:
@@ -118,6 +120,15 @@ def _on_ctp_ready(manager, ctp) -> None:
         log(f"FAOS_CONTRACT_SEED_FAIL {e}")
     n = manager.resubscribe_all()
     log(f"FAOS_LEGS_RESUBSCRIBED {n}")
+    try:
+        cleaned = ctp.cancel_all_active_orders()
+        if cleaned:
+            log(f"FAOS_STALE_ORDERS_CLEANED {cleaned}")
+            manager.push.notice(
+                "warn", f"已清理上一柜台会话的残留挂单 {cleaned} 笔"
+                "（同账号异地登录/上次异常退出的遗留；后登录会话为准）")
+    except Exception as e:
+        log(f"FAOS_STALE_ORDERS_CLEAN_FAIL {e}")
     manager.reconcile_holdings(ctp)
 
 
@@ -148,6 +159,21 @@ def main() -> int:
         try:
             exit_code = app.run_return()  # 点击 X / 所有窗口关闭后返回
         finally:
+            # 关闭即停止所有活动（2026-10-21 定稿）：撤全部触发单+停算法，
+            # 再撤柜台全部活动委托兜底（算法外残留），最后正常登出——
+            # 防止挂单留存柜台成为下个会话的孤儿单
+            try:
+                if state.manager is not None:
+                    state.manager.stop_all()
+                if state.ctp is not None:
+                    n = state.ctp.cancel_all_active_orders()
+                    if n:
+                        log(f"FAOS_EXIT_ORDERS_CANCELLED {n}")
+                    import time as _t
+
+                    _t.sleep(0.5)  # 撤单请求落柜台后再断开
+            except Exception as e:
+                log(f"FAOS_EXIT_STOP_FAIL {e}")
             # 优雅断开（柜台可见的正常登出），随后硬退出：
             # portal join 与 vnpy/CTP 非守护线程可能挂住 with 退出，点击 X 后必须保证进程终结
             try:

@@ -407,6 +407,21 @@ class CtpService:
         )
         self.main_engine.cancel_order(req, "CTP")
 
+    def cancel_all_active_orders(self) -> int:
+        """撤销柜台上本账号全部活动委托（2026-10-21 定稿）。
+
+        两个场景：①应用关闭时停止所有活动（先撤再正常登出）②CTP 就绪后清理
+        上一柜台会话的残留挂单——SimNow 单会话同账号异地登录互踢后，旧会话
+        挂的限价单仍留存柜台（挂单不随会话消失），后登录方统一清理。"""
+        n = 0
+        for o in self.get_all_active_orders():
+            try:
+                self.cancel_order(o.vt_orderid)
+                n += 1
+            except Exception:
+                pass
+        return n
+
     def _oms(self):
         if self.main_engine is None:
             return None
