@@ -12,12 +12,14 @@ SpreadService 按策略账本算好的 {vt_symbol: {"yd": n, "td": m}}，发送�
 
 from dataclasses import asdict, dataclass
 
-from vnpy.trader.constant import Direction, Offset, OrderType
+from vnpy.trader.constant import Direction, Offset, OrderType, Status
 from vnpy.trader.object import OrderRequest
 from vnpy.trader.utility import round_to
 from vnpy_spreadtrading import APP_NAME
 from vnpy_spreadtrading.algo import SpreadTakerAlgo
 from vnpy_spreadtrading.base import AlgoItem
+
+_FINAL_STATUS = {Status.ALLTRADED, Status.CANCELLED, Status.REJECTED}
 
 
 def leg_order_price(tick, pricetick: float, slip: int, order_type: str, side: str) -> float:
@@ -100,6 +102,30 @@ class FaosTakerAlgo(SpreadTakerAlgo):
             self.status = _Status.CANCELLED
             self.write_log("算法已停止（停止即终结，不再补腿；未对冲敞口请人工核对）")
             self.put_event()
+
+    def update_order(self, order) -> None:
+        """委托终结即移出在途表（2026-10-21，「挂不了单」根因之一）：
+
+        基类只在 REJECTED/CANCELLED 时移除，ALLTRADED 依赖 update_trade 的
+        成交量相等判断——成交/委托事件乱序或缺成交回报时该单号永久滞留，
+        is_order_finished() 永远为假 → 算法永不终结 → 策略卡「执行中」→
+        同向/平仓触发单全部不再点火（用户表现：突然挂不了单）。"""
+        super().update_order(order)
+        if order.status in _FINAL_STATUS:
+            ids = self.leg_orders.get(order.vt_symbol)
+            if ids and order.vt_orderid in ids:
+                ids.remove(order.vt_orderid)
+
+    def cancel_leg_order(self, vt_symbol: str) -> None:
+        """撤在途委托（已终结的跳过：CTP 错误 26「报单已全成交或已撤销，不能再撤」）。"""
+        for vt_orderid in list(self.leg_orders.get(vt_symbol, [])):
+            order = self.orders.get(vt_orderid)
+            if order is not None and order.status in _FINAL_STATUS:
+                ids = self.leg_orders.get(vt_symbol)
+                if ids and vt_orderid in ids:
+                    ids.remove(vt_orderid)
+                continue
+            self.algo_engine.cancel_order(self, vt_orderid)
 
     def on_trade(self, trade) -> None:
         """平仓拆分算法：按成交 Offset 累计本算法已成交的今/昨量（重发时重算剩余）。"""

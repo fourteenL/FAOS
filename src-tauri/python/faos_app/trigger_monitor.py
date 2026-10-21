@@ -64,10 +64,28 @@ class TriggerMonitor:
                     if t.action not in (TriggerAction.open_short, TriggerAction.open_long) \
                             or _SIDE_OF[t.action] in running:
                         continue
-                if t.action == TriggerAction.close_short and s.held_units >= 0:
-                    continue  # 状态漂移兜底：无空头持仓不执行空平
-                if t.action == TriggerAction.close_long and s.held_units <= 0:
+                if t.action == TriggerAction.close_short and s.held_short_units < 1e-9:
+                    continue  # 状态漂移兜底：无空头持仓不执行空平（双向份口径）
+                if t.action == TriggerAction.close_long and s.held_long_units < 1e-9:
                     continue
+                # 失效平仓单（2026-10-21 实证：持仓已平/账本为 0 时 is_close 单仍会
+                # 点火，净仓转换在柜台开出新仓）——点火前校验对应方向份数，缺失即撤销
+                if getattr(t, "is_close", False) and t.action in (TriggerAction.open_long,
+                                                                TriggerAction.open_short):
+                    pool_fn = getattr(self._manager, "close_pool", None)
+                    if pool_fn is not None:  # 账本 ∩ 柜台实际（未连接时只信账本）
+                        pool = pool_fn(s, t.action)
+                    else:
+                        pool = (s.held_short_units if t.action == TriggerAction.open_long
+                                else s.held_long_units)
+                    if pool < 1e-9:
+                        s.triggers.remove(t)
+                        self._manager.store.update(s)
+                        self._manager.push.strategy(s)
+                        self._manager.push.notice(
+                            "warn", f"策略 #{s.id} {s.pair} 平仓触发单已失效"
+                            "（对应方向持仓已不存在），已自动撤销——避免反向开出新仓")
+                        continue
                 if not should_trigger(t.action, q, t.spread):
                     continue
                 if self._executor is None:

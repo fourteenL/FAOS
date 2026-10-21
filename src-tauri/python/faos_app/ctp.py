@@ -324,6 +324,11 @@ class CtpService:
             self._connected = False  # 允许重新手动拨号
             self._push.notice("warn", f"CTP 连接断开: {msg}")
         elif "失败" in msg or "错误" in msg:
+            # 撤单竞态（CTP 错误 26）：委托在撤单请求到达前已全成交/已撤销——
+            # 属正常竞态（2026-10-21 用户实证误报为红色错误吓人），仅记日志不外报
+            if "已全成交或已撤销" in msg or "代码:26" in msg:
+                log(f"FAOS_CANCEL_BENIGN {msg}")
+                return
             self._push.notice("error", f"CTP: {msg}")
 
     def _set_state(self, state: str, msg: Optional[str] = None) -> None:

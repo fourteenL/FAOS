@@ -69,6 +69,7 @@ def _build_services(settings: Settings, portal, pusher: Pusher) -> AppState:
         monitor.set_executor(spread_service)
         state.spread_service = spread_service
         manager.set_pending_units_provider(spread_service.pending_units)  # 挂单净额校验计入在途算法
+        manager.set_account_pool_provider(spread_service.account_close_pool)  # 平仓池账本为 0 时回落柜台实际
         manager.on_stop_hooks.append(spread_service.stop_algos)
         manager.on_direction_stop_hooks.append(spread_service.stop_algos_direction)  # 方向级停止同步停该侧算法
         spread_service.set_strategy_stopper(manager.stop)  # A 腿撤单触限 → 停策略（撤单在 service 内兜底）
@@ -120,6 +121,10 @@ def _on_ctp_ready(state, ctp) -> None:
         log(f"FAOS_CONTRACT_SEED_FAIL {e}")
     n = manager.resubscribe_all()
     log(f"FAOS_LEGS_RESUBSCRIBED {n}")
+    try:
+        manager.clamp_ledger_to_account(ctp)  # 裁剪历史虚拟份数（只减不增）
+    except Exception as e:
+        log(f"FAOS_LEDGER_CLAMP_FAIL {e}")
     try:
         cleaned = ctp.cancel_all_active_orders()
         if cleaned:

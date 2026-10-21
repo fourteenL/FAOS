@@ -11,9 +11,9 @@ const rows = computed(() => {
   const out = [];
   for (const s of store.strategies) {
     for (const t of s.triggers || []) {
-      // 平仓=反向开仓（用户定稿 2026-10-13）：持仓为反向的开仓挂单标注（平仓）
-      const closing = (s.held_units < 0 && t.action === "open_long")
-        || (s.held_units > 0 && t.action === "open_short");
+      // 平仓标注按单据 is_close 通道（2026-10-21：不再按持仓方向猜——反向普通挂单
+      // 是正常开仓锁仓，误标「平仓」会让人以为点了平仓）
+      const closing = !!t.is_close;
       out.push({
         id: s.id, pair: s.pair, action: t.action, spread: t.spread,
         lots: t.lots, trigger_id: t.trigger_id,

@@ -223,9 +223,31 @@ class SpreadService:
             self._algo_action[algoid] = trigger.action
             self._cap_halted.discard(strategy.id)  # 上限调大后恢复交易：急停标记复位
             self._algo_close_mark[algoid] = closing
-            self._algo_rearm[algoid] = (strategy.id, trigger.action, trigger.spread, trigger.lots)
+            # 重挂要保留平仓通道身份（2026-10-21 修正：旧实现超时重挂把平仓单变成
+            # 普通开仓单，会反向开新仓）
+            self._algo_rearm[algoid] = (strategy.id, trigger.action, trigger.spread,
+                                        trigger.lots, closing)
             self._algo_traded[algoid] = 0
         return algoid or None
+
+    def account_close_pool(self, strategy: Strategy, action) -> float:
+        """账户实际可平份数（按策略两腿取两侧最小，2026-10-21）：策略账本为 0 时
+        平仓按钮的兜底池——柜台有仓但 FAOS 账本未记录（老策略/手动交易/账本漂移）
+        时仍可平，避免「无限易明明有仓、FAOS 报无持仓」。"""
+        from faos_app.leg_ops import account_position_book
+
+        try:
+            if not self._ctp.is_ready():
+                return None  # 柜台数据未知（未连接）：由策略账本独自判断
+            book = account_position_book(self._ctp.get_positions())
+        except Exception:
+            return None
+        a = book.get(vt_symbol_of(strategy.leg_a)) or {}
+        b = book.get(vt_symbol_of(strategy.leg_b)) or {}
+        tot = lambda row, d: row.get(f"{d}_today", 0) + row.get(f"{d}_yd", 0)
+        if action == TriggerAction.open_long:  # 平空：A 买回（需 A 空）、B 卖出（需 B 多）
+            return min(tot(a, "short"), tot(b, "long"))
+        return min(tot(a, "long"), tot(b, "short"))  # 平多：A 卖（需 A 多）、B 买（需 B 空）
 
     def stop_algos(self, strategy: Strategy) -> None:
         for algoid in list(strategy.active_algos):
@@ -291,10 +313,12 @@ class SpreadService:
             traded = self._algo_traded.get(algoid, 0)
             if rearm is not None and traded == 0 and self._rearm_fn is not None:
                 try:
-                    self._rearm_fn(*rearm)
+                    sid, action, spread, lots, closing = rearm
+                    self._rearm_fn(sid, action, spread, lots, is_close_order=closing)
                     self._push.notice(
                         "warn", f"价差算法 {algoid} 追价超时（{timeout} 秒未成交），已停止并"
-                        "原价重挂触发单——行情恢复后自动再触发（挂单未丢失）")
+                        + ("原价重挂平仓触发单" if closing else "原价重挂触发单")
+                        + "——行情恢复后自动再触发（挂单未丢失）")
                     continue
                 except Exception as e:
                     from faos_app.log import log
@@ -468,12 +492,24 @@ class SpreadService:
         from faos_app.log import log
 
         log(f"FAOS_ALGO_DONE {item.spread_name} {item.status.value} traded={item.traded_volume}")
-        # 双向记账（2026-10-20 定稿，修「锁仓数据对冲消失」）：多头份/空头份分别累计，
-        # 净额=long-short 重算——反向开仓成交后净额归零但双向份并存（锁仓可见）
-        if item.direction == Direction.LONG:
-            s.held_long_units = round(s.held_long_units + item.traded_volume, 6)
+        # 双向记账（2026-10-20 引入，10-21 修正方向）：多头份/空头份分别累计。
+        # 平仓通道成交是「消耗」不是「新增」——平空单 direction=LONG 但应减空头份
+        # （2026-10-21 实证：按 direction 累加导致平仓后净额反增 +1、虚拟份数滚大
+        #  → 总份校验失效（柜台 6 手/FAOS 显示 4））
+        traced = item.traded_volume
+        if closing and action == TriggerAction.open_long:      # 平空：买回消耗空头份
+            s.held_short_units = round(s.held_short_units - traced, 6)
+        elif closing and action == TriggerAction.open_short:   # 平多：卖出消耗多头份
+            s.held_long_units = round(s.held_long_units - traced, 6)
+        elif item.direction == Direction.LONG:
+            s.held_long_units = round(s.held_long_units + traced, 6)
         else:
-            s.held_short_units = round(s.held_short_units + item.traded_volume, 6)
+            s.held_short_units = round(s.held_short_units + traced, 6)
+        if s.held_long_units < 0 or s.held_short_units < 0:
+            log(f"FAOS_BOOK_NEGATIVE {item.spread_name} 账本为负（平仓量超出策略归属）"
+                f" long={s.held_long_units:g} short={s.held_short_units:g}，已归零")
+            s.held_long_units = max(0.0, s.held_long_units)
+            s.held_short_units = max(0.0, s.held_short_units)
         s.held_units = round(s.held_long_units - s.held_short_units, 6)
         self._store.update(s)
         self._push.strategy(s)
@@ -490,9 +526,10 @@ class SpreadService:
         """该策略在途算法的净敞口份数（已启动未完成）——挂单净额校验计入
         （2026-10-20 实证：执行中 held 未更新，1 秒内双挂同向单 → 总份 1 开成 2 份）。"""
         total = 0.0
-        for algoid, rearm in self._algo_rearm.items():
-            sid, action, _, lots = rearm
+        for rearm in self._algo_rearm.values():
+            sid, action, _, lots, _closing = rearm
             if sid != strategy_id:
                 continue
+            # 净额口径：盘口方向即净额变化方向（开多/平空均为 +，开空/平多均为 -）
             total += lots if _ACTION_DIRECTION[action] == Direction.LONG else -lots
         return round(total, 6)

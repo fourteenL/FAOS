@@ -76,6 +76,7 @@ class StrategyManager:
         self._contract_stale_notifier = contract_stale_notifier or (lambda product: None)
         self._settings = settings
         self._pending_units_provider = None  # 在途算法净敞口查询（main 注入 spread_service.pending_units）
+        self._account_pool_provider = None   # 账户可平份数查询（main 注入 spread_service.account_close_pool）
         self._dominant_hints: dict[str, dict] = {}  # product -> {vt_symbol: 持仓量}（市场实测）
         # 停止策略时的扩展点（T10 的 spread_service 注册撤算法钩子）
         self.on_stop_hooks: list[Callable[[Strategy], None]] = []
@@ -94,6 +95,38 @@ class StrategyManager:
     def set_pending_units_provider(self, fn) -> None:
         """在途算法净敞口查询注入（main 装配：spread_service.pending_units）。"""
         self._pending_units_provider = fn
+
+    def set_account_pool_provider(self, fn) -> None:
+        """账户实际可平份数查询注入（main 装配：spread_service.account_close_pool）。
+
+        平仓池兜底（2026-10-21）：策略账本为 0 但柜台有仓（老策略/手动交易/账本
+        漂移）时，按账户实际持仓放行平仓——避免「无限易明明有仓、FAOS 报无持仓」。"""
+        self._account_pool_provider = fn
+
+    def _account_pool(self, strategy: "Strategy", action) -> Optional[float]:
+        """柜台实际可平份数；None=未知（未连接/查询失败）。"""
+        if self._account_pool_provider is None:
+            return None
+        try:
+            v = self._account_pool_provider(strategy, action)
+            return None if v is None else float(v)
+        except Exception:
+            return None
+
+    def close_pool(self, strategy: "Strategy", action) -> float:
+        """可平份数（平仓按钮/点火校验统一口径）：策略账本 ∩ 柜台实际。
+
+        - 柜台未知（未连接）→ 只信账本（离线不误挡）
+        - 账本为 0 而柜台有仓（老策略/手动交易/账本漂移）→ 按柜台实际
+        - 两者都有 → 取小（绝不超出柜台可平量，防溢出量走净仓转换反向开新仓）"""
+        ledger = (strategy.held_short_units if action == TriggerAction.open_long
+                  else strategy.held_long_units)
+        acct = self._account_pool(strategy, action)
+        if acct is None:
+            return ledger
+        if ledger < 1e-9:
+            return acct
+        return min(ledger, acct)
 
     def _pending_units(self, strategy_id: int) -> float:
         if self._pending_units_provider is None:
@@ -414,10 +447,9 @@ class StrategyManager:
         # 单腿+错向敞口）——平仓按钮通道一律 clamp 到该方向持仓份数，无仓拒单。
         # 2026-10-20 夜盘修订：按方向双向份（锁仓时净额=0 会误拒双向持仓的平仓）
         if is_close_order and action in _OPEN_ACTIONS:
-            pool = (s.held_short_units if action == TriggerAction.open_long
-                    else s.held_long_units)  # 平空=买回消耗空头份；平多=卖出消耗多头份
+            pool = self.close_pool(s, action)  # 账本 ∩ 柜台实际（见 close_pool 口径）
             if pool < 1e-9:
-                raise ValueError("该方向无价差持仓可平")
+                raise ValueError("该方向无价差持仓可平（策略账本与柜台持仓均为 0）")
             lots = min(lots, pool)
         # 开平语义第五次演进（2026-10-19 夜盘实测后用户终稿）：反方向挂单恢复为
         # 正常开仓（上期所双向锁仓=设计效果，与同向加仓一致）；平仓唯一入口仍是
@@ -535,6 +567,53 @@ class StrategyManager:
             if changed:
                 self._store.update(s)
                 self._push.strategy(s)
+
+    def clamp_ledger_to_account(self, ctp) -> int:
+        """按柜台实际持仓裁剪不可能的账本（2026-10-21 数据修复）。
+
+        记账方向 bug（平仓被记成反向新增）会在 strategies.json 留下虚拟份数：
+        策略声明某腿某方向份数 > 柜台该合约该方向总持仓 = 物理上不可能。此处只
+        向下裁剪这类不可能的声明（只减不增、绝不改正常持仓），柜台无持仓数据
+        （未连接/未加载）时不动——避免把正常持仓裁成 0。返回修正条数。"""
+        from faos_app.leg_ops import account_position_book
+        from faos_app.spread_service import vt_symbol_of
+
+        try:
+            book = account_position_book(ctp.get_positions())
+        except Exception:
+            return 0
+        if not book:
+            return 0
+        fixes = []
+        for s in self._store.list():
+            changed = False
+            a = book.get(vt_symbol_of(s.leg_a)) or {}
+            b = book.get(vt_symbol_of(s.leg_b)) or {}
+            tot = lambda row, d: row.get(f"{d}_today", 0) + row.get(f"{d}_yd", 0)
+            # 价差份的物理上限：多头价差需两腿都「多」、空头价差需两腿都「空」（A/B 取小）
+            for field, cap, label in (
+                ("held_long_units", min(tot(a, "long"), tot(b, "long")), "多"),
+                ("held_short_units", min(tot(a, "short"), tot(b, "short")), "空"),
+            ):
+                have = getattr(s, field) or 0
+                if have > cap + 1e-9:
+                    setattr(s, field, float(cap))
+                    fixes.append(f"#{s.id} {s.pair} {label}头价差 {have:g}→{cap:g} 份")
+                    changed = True
+            if changed:
+                s.held_units = round((s.held_long_units or 0) - (s.held_short_units or 0), 6)
+                self._store.update(s)
+                self._push.strategy(s)
+        if fixes:
+            from faos_app.log import log
+
+            log(f"FAOS_LEDGER_CLAMPED {len(fixes)} 条：" + "、".join(fixes))
+            self._push.notice(
+                "warn",
+                "已按柜台实际持仓校正策略账本（裁剪超出柜台持仓的虚拟份数，"
+                + "、".join(fixes)
+                + "）——此前版本平仓记账方向错误遗留；如柜台有多出的持仓请手动平掉")
+        return len(fixes)
 
     def reconcile_holdings(self, ctp) -> None:
         """CTP 就绪后核对账户实际持仓 vs 策略归属持仓（按各策略自身成交记录推导）。
