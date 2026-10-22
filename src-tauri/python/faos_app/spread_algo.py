@@ -13,7 +13,7 @@ SpreadService 按策略账本算好的 {vt_symbol: {"yd": n, "td": m}}，发送�
 from dataclasses import asdict, dataclass
 
 from vnpy.trader.constant import Direction, Offset, OrderType, Status
-from vnpy.trader.object import OrderRequest
+from vnpy.trader.object import OrderData, OrderRequest
 from vnpy.trader.utility import round_to
 from vnpy_spreadtrading import APP_NAME
 from vnpy_spreadtrading.algo import SpreadTakerAlgo
@@ -103,18 +103,23 @@ class FaosTakerAlgo(SpreadTakerAlgo):
             self.write_log("算法已停止（停止即终结，不再补腿；未对冲敞口请人工核对）")
             self.put_event()
 
-    def update_order(self, order) -> None:
-        """委托终结即移出在途表（2026-10-21，「挂不了单」根因之一）：
+    def update_trade(self, trade) -> None:
+        """成交早于委托回报时补占位单（2026-10-22 加固）。
 
-        基类只在 REJECTED/CANCELLED 时移除，ALLTRADED 依赖 update_trade 的
-        成交量相等判断——成交/委托事件乱序或缺成交回报时该单号永久滞留，
-        is_order_finished() 永远为假 → 算法永不终结 → 策略卡「执行中」→
-        同向/平仓触发单全部不再点火（用户表现：突然挂不了单）。"""
-        super().update_order(order)
-        if order.status in _FINAL_STATUS:
-            ids = self.leg_orders.get(order.vt_symbol)
-            if ids and order.vt_orderid in ids:
-                ids.remove(order.vt_orderid)
+        基类 update_trade 直接 self.orders[vt_orderid] 取值，委托回报晚到会
+        KeyError → 移出在途/算法结算全部中断。补一个同量占位单让基类正常推进。
+        注意：**不能在 update_order 里提前移除 ALLTRADED 委托**——旧实现那样做
+        会在「委托已成交但成交回报未到」的间隙让 is_order_finished() 变真，
+        对冲腿被重复下单（22 日夜盘实证：A 卖 1、B 买 2，凭空多出裸腿）。"""
+        if trade.vt_orderid not in self.orders:
+            self.orders[trade.vt_orderid] = OrderData(
+                gateway_name=trade.gateway_name, symbol=trade.symbol,
+                exchange=trade.exchange, orderid=trade.orderid,
+                direction=trade.direction, offset=trade.offset,
+                price=trade.price, volume=trade.volume, traded=trade.volume,
+                datetime=None,
+            )
+        super().update_trade(trade)
 
     def cancel_leg_order(self, vt_symbol: str) -> None:
         """撤在途委托（已终结的跳过：CTP 错误 26「报单已全成交或已撤销，不能再撤」）。"""
@@ -156,10 +161,17 @@ class FaosTakerAlgo(SpreadTakerAlgo):
         else:
             price = leg_order_price(leg_tick, leg_contract.pricetick, slip, order_type, "sell")
             direction = Direction.SHORT
-        plan = (self.extra or {}).get("close_split", {}).get(vt_symbol)
+        extra = self.extra or {}
         vol = abs(leg_volume)
+        if not extra.get("closing"):
+            # 开仓一律显式 OPEN（2026-10-22 定稿）：vnpy 的 lock 转换在上期所会
+            # 「先平昨再开」——开仓单会把别的策略的昨仓平掉（22 日实证：策略账本
+            # 转负、柜台仓位错乱）。绕开账户级转换，策略腿真正物理隔离。
+            self._send_offset_order(vt_symbol, price, vol, direction, Offset.OPEN)
+            return
+        plan = extra.get("close_split", {}).get(vt_symbol)
         if plan:
-            # 剩余计划 = 初始拆分 − 本算法已成交今/昨；先昨后期；计划外量回落账户级
+            # 剩余计划 = 初始拆分 − 本算法已成交今/昨；先昨后今
             done = self.leg_offset_done.get(vt_symbol, {"td": 0.0, "yd": 0.0})
             yd_left = max(0.0, plan["yd"] - done["yd"])
             td_left = max(0.0, plan["td"] - done["td"])
@@ -170,10 +182,60 @@ class FaosTakerAlgo(SpreadTakerAlgo):
                 self._send_offset_order(vt_symbol, price, yd_use, direction, Offset.CLOSEYESTERDAY)
             if td_use > 0:
                 self._send_offset_order(vt_symbol, price, td_use, direction, Offset.CLOSETODAY)
-            if overflow > 1e-9:
-                self.send_order(vt_symbol, price, overflow, direction)
+            if overflow > 1e-9:  # 计划外量按柜台实际可平处理（不再净仓转换开新仓）
+                self._send_account_close(vt_symbol, price, overflow, direction)
             return
-        self.send_order(vt_symbol, price, vol, direction)
+        self._send_account_close(vt_symbol, price, vol, direction)
+
+    def _account_split(self, vt_symbol: str):
+        """柜台该合约今昨持仓（多空各今/昨）；OMS 不可用返回 None。"""
+        try:
+            me = self.algo_engine.main_engine
+            oms = me.get_engine("oms") if me is not None else None
+            positions = oms.get_all_positions() if oms is not None else None
+        except Exception:
+            return None
+        if positions is None:
+            return None
+        out = {"long_td": 0.0, "long_yd": 0.0, "short_td": 0.0, "short_yd": 0.0}
+        for p in positions:
+            if getattr(p, "vt_symbol", "") != vt_symbol:
+                continue
+            vol = float(getattr(p, "volume", 0) or 0)
+            yd = float(getattr(p, "yd_volume", 0) or 0)
+            d = str(getattr(getattr(p, "direction", ""), "value", getattr(p, "direction", "")))
+            if d in ("多", "long"):
+                out["long_yd"] += yd
+                out["long_td"] += vol - yd
+            elif d in ("空", "short"):
+                out["short_yd"] += yd
+                out["short_td"] += vol - yd
+        return out
+
+    def _send_account_close(self, vt_symbol: str, price: float, volume: float,
+                            direction) -> None:
+        """按柜台实际持仓显式平仓：先昨后今、只平不开。
+
+        2026-10-22 定稿：净仓转换（send_order + lock=False）在柜台无可平量时会把
+        溢出量变成 OPEN 反向建仓——平仓单开出新仓（用户实证「胡乱下单」）。"""
+        split = self._account_split(vt_symbol)
+        if split is None:
+            # 拿不到柜台持仓时宁可不发：净仓转换在无仓可平时会把量变成开新仓
+            # （10-22 用户实证「平仓单开出新仓」），宁可平不掉也不能乱开
+            self.write_log(f"{vt_symbol} 无法读取柜台持仓，平仓委托未发（避免反向建仓）")
+            return
+        closing_short = direction == Direction.LONG  # 买入=平空；卖出=平多
+        yd = split["short_yd"] if closing_short else split["long_yd"]
+        td = split["short_td"] if closing_short else split["long_td"]
+        use_yd = min(volume, max(0.0, yd))
+        use_td = min(volume - use_yd, max(0.0, td))
+        if use_yd > 0:
+            self._send_offset_order(vt_symbol, price, use_yd, direction, Offset.CLOSEYESTERDAY)
+        if use_td > 0:
+            self._send_offset_order(vt_symbol, price, use_td, direction, Offset.CLOSETODAY)
+        left = volume - use_yd - use_td
+        if left > 1e-9:
+            self.write_log(f"{vt_symbol} 柜台可平不足 {left:g} 手，未开新仓（避免反向建仓）")
 
     def _send_offset_order(self, vt_symbol: str, price: float, volume: float,
                            direction, offset) -> None:
@@ -191,10 +253,12 @@ class FaosTakerAlgo(SpreadTakerAlgo):
         price = round_to(price, contract.pricetick)
         tick = self.get_tick(vt_symbol)
         if tick:
-            if direction == Direction.LONG and tick.limit_up:
-                price = min(price, tick.limit_up)
-            elif direction == Direction.SHORT and tick.limit_down:
-                price = max(price, tick.limit_down)
+            limit_up = getattr(tick, "limit_up", None)
+            limit_down = getattr(tick, "limit_down", None)
+            if direction == Direction.LONG and limit_up:
+                price = min(price, limit_up)
+            elif direction == Direction.SHORT and limit_down:
+                price = max(price, limit_down)
         req = OrderRequest(
             symbol=contract.symbol, exchange=contract.exchange,
             direction=direction, offset=offset, type=OrderType.LIMIT,
@@ -202,13 +266,18 @@ class FaosTakerAlgo(SpreadTakerAlgo):
             reference=f"{APP_NAME}_{self.spread_name}",
         )
         engine = self.algo_engine
-        vt_orderid = engine.main_engine.send_order(req, contract.gateway_name)
+        main_engine = getattr(engine, "main_engine", None)
+        if main_engine is None:  # 极端情况（引擎未装配）：跳过，不让事件线程崩
+            self.write_log("柜台通道不可用，跳过腿委托")
+            return
+        vt_orderid = main_engine.send_order(req, contract.gateway_name)
         if not vt_orderid:
             return
-        engine.main_engine.update_order_request(req, vt_orderid, contract.gateway_name)
+        main_engine.update_order_request(req, vt_orderid, contract.gateway_name)
         engine.order_algo_map[vt_orderid] = self
         engine.data_engine.update_order_spread_map(vt_orderid, self.spread)
         self.leg_orders[vt_symbol].append(vt_orderid)
-        off_zh = "平昨" if offset == Offset.CLOSEYESTERDAY else "平今"
+        off_zh = {Offset.OPEN: "开", Offset.CLOSETODAY: "平今",
+                  Offset.CLOSEYESTERDAY: "平昨"}.get(offset, str(offset))
         self.write_log(f"发出委托[{vt_orderid}]，{vt_symbol}，"
                        f"{getattr(direction, 'value', direction)}，{off_zh}，{volume}@{price}")

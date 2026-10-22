@@ -13,7 +13,7 @@ from vnpy.trader.event import EVENT_ORDER, EVENT_TRADE
 from vnpy_spreadtrading import APP_NAME
 from vnpy_spreadtrading.base import EVENT_SPREAD_ALGO, AlgoItem, LegData, SpreadData
 
-from faos_app.models import Strategy, TriggerAction
+from faos_app.models import Strategy, StrategyStatus, TriggerAction
 
 _FINISHED_STATUS = {Status.ALLTRADED, Status.CANCELLED, Status.REJECTED}
 _ACTION_DIRECTION = {
@@ -202,6 +202,7 @@ class SpreadService:
             "slip_b": strategy.slip_b,
             "order_type_a": strategy.order_type_a,
             "order_type_b": strategy.order_type_b,
+            "closing": closing,  # 开仓显式 OPEN / 平仓显式平今平昨（算法内分流，2026-10-22）
         }
         if closing:
             split = self._plan_close_split(strategy, trigger)
@@ -353,6 +354,44 @@ class SpreadService:
             self._push.notice(
                 "warn", f"价差算法 {algoid} 追价超时（{timeout} 秒未完成），已自动停止，请检查腿部持仓"
             )
+        self._cleanup_orphan_algos()
+
+    def _engine_algos(self):
+        """引擎当前在跑的 algoid 集合（真实引擎 algo_engine.algos；Fake/缺失返回 None）。"""
+        eng = self._engine
+        if eng is None:
+            return None
+        ae = getattr(eng, "algo_engine", eng)
+        algos = getattr(ae, "algos", None)
+        return set(algos.keys()) if isinstance(algos, dict) else None
+
+    def _cleanup_orphan_algos(self) -> None:
+        """引擎已无该算法但策略仍记在 active_algos（完成事件丢失）→ 清理状态。
+
+        2026-10-22：旧实现靠 update_order 提前移除 ALLTRADED 委托来防「卡执行中」，
+        代价是对冲腿被重复下单；改为此处按引擎实际状态自愈，不动委托/对冲逻辑。"""
+        alive = self._engine_algos()
+        if alive is None or self._store is None:
+            return
+        for s in self._store.list():
+            changed = False
+            for algoid in list(s.active_algos):
+                if algoid in alive or algoid in self._algo_started:
+                    continue  # 仍在引擎或仍在计时（刚启动）
+                s.active_algos.remove(algoid)
+                changed = True
+                if self._monitor is not None:
+                    self._monitor.on_algo_finished(s.id, algoid)
+                self._push.notice(
+                    "warn", f"策略 #{s.id} {s.pair} 算法 {algoid} 已结束但未收到完成事件，"
+                    "状态已清理——请核对腿部/策略持仓")
+            if changed:
+                if not s.active_algos:
+                    s.executing_action = None
+                    s.status = (StrategyStatus.armed if s.triggers
+                                else StrategyStatus.active)
+                self._store.update(s)
+                self._push.strategy(s)
 
     def start_watchdog(self, portal) -> None:
         """portal 线程上每 10 秒跑一次看门狗。"""

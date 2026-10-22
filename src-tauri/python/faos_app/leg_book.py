@@ -47,6 +47,20 @@ def _leg_entry(s, leg: str) -> dict:
         leg, {"long_td": 0, "long_yd": 0, "short_td": 0, "short_yd": 0})
 
 
+def _clamp_entry(s, leg: str) -> None:
+    """账本四项不为负（2026-10-22 实证：lock 转换平掉别策略昨仓时本策略账本转负，
+    后续平仓拆分计划失真）——归零并留 FAOS_BOOK_NEGATIVE。"""
+    entry = (s.leg_book or {}).get(leg)
+    if not entry:
+        return
+    for k in ("long_td", "long_yd", "short_td", "short_yd"):
+        if entry.get(k, 0) < 0:
+            from faos_app.log import log
+
+            log(f"FAOS_BOOK_NEGATIVE {getattr(s, 'pair', '')} {leg} {k}={entry[k]:g} 归零")
+            entry[k] = 0
+
+
 def apply_trade_to_book(s, leg: str, direction, offset, volume: float) -> None:
     """成交入账。direction/offset 接受 vnpy 枚举或值字符串（开/平/平今/平昨）。
 
@@ -58,6 +72,7 @@ def apply_trade_to_book(s, leg: str, direction, offset, volume: float) -> None:
     entry = _leg_entry(s, leg)
     if off in ("开", "open", ""):
         entry[f"{d}_td"] = round(entry[f"{d}_td"] + volume, 6)
+        _clamp_entry(s, leg)
         return
     opp = "short" if d == "long" else "long"
     if "昨" in off or "yesterday" in off.lower():
@@ -68,6 +83,7 @@ def apply_trade_to_book(s, leg: str, direction, offset, volume: float) -> None:
         take_td = min(max(entry[f"{opp}_td"], 0), volume)
         entry[f"{opp}_td"] = round(entry[f"{opp}_td"] - take_td, 6)
         entry[f"{opp}_yd"] = round(entry[f"{opp}_yd"] - (volume - take_td), 6)
+    _clamp_entry(s, leg)
 
 
 def plan_close_split(s, actual_book: dict, leg_pairs: list, key: str, need: float):
