@@ -327,6 +327,8 @@ class CtpService:
             # 撤单竞态（CTP 错误 26）：委托在撤单请求到达前已全成交/已撤销——
             # 属正常竞态（2026-10-21 用户实证误报为红色错误吓人），仅记日志不外报
             if "已全成交或已撤销" in msg or "代码:26" in msg:
+                from faos_app.log import log  # 局部导入（模块级无 log，10-22 NameError 实证）
+
                 log(f"FAOS_CANCEL_BENIGN {msg}")
                 return
             self._push.notice("error", f"CTP: {msg}")

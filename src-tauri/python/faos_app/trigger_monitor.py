@@ -51,6 +51,9 @@ class TriggerMonitor:
         self._executor = executor
 
     def on_spread(self, pair: str, q: SpreadQuote) -> None:
+        lock = getattr(self._manager, "is_close_locked", None)
+        if lock is not None and lock():
+            return  # 收盘风控锁：时点前不再点火（新单已在 place_trigger 拒绝）
         for s in self._manager.store.list():
             if s.pair != pair or not s.triggers:
                 continue

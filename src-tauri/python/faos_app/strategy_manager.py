@@ -77,6 +77,7 @@ class StrategyManager:
         self._settings = settings
         self._pending_units_provider = None  # 在途算法净敞口查询（main 注入 spread_service.pending_units）
         self._account_pool_provider = None   # 账户可平份数查询（main 注入 spread_service.account_close_pool）
+        self._close_lock_until = None        # 风控下单锁截止时刻（收盘前窗口内拒新单）
         self._dominant_hints: dict[str, dict] = {}  # product -> {vt_symbol: 持仓量}（市场实测）
         # 停止策略时的扩展点（T10 的 spread_service 注册撤算法钩子）
         self.on_stop_hooks: list[Callable[[Strategy], None]] = []
@@ -91,6 +92,17 @@ class StrategyManager:
     @property
     def push(self):
         return self._push
+
+    def set_close_lock(self, until) -> None:
+        """风控下单锁：until（时间点）之前拒绝新挂单（2026-10-22 收盘最后一分钟定稿）。"""
+        self._close_lock_until = until
+
+    def is_close_locked(self, now=None) -> bool:
+        if getattr(self, "_close_lock_until", None) is None:
+            return False
+        from datetime import datetime as _dt
+
+        return (now or _dt.now()) < self._close_lock_until
 
     def set_pending_units_provider(self, fn) -> None:
         """在途算法净敞口查询注入（main 装配：spread_service.pending_units）。"""
@@ -438,6 +450,8 @@ class StrategyManager:
                        replace_trigger_id: Optional[str] = None,
                        is_close_order: bool = False) -> Trigger:
         s = self._require(strategy_id)
+        if self.is_close_locked():
+            raise ValueError("临近收盘/休市（风控锁），时点前不再接受新挂单")
         if s.status == StrategyStatus.stopped:
             raise ValueError("策略已停止，无法挂触发单")
         lots = s.single_lots if lots is None else lots
@@ -797,15 +811,52 @@ def seconds_to_close(now, window: int = 60, sessions: Optional[list] = None) -> 
     return best
 
 
+def session_end_infos(now, sessions) -> list:
+    """各时段距最近一次 end 的时间差：[(key, delta_seconds, end_datetime), ...]。
+
+    delta>0=还没到（倒计时）；delta<=0=刚过（可用于收盘后兜底）。
+    跨午夜时段（"次日 H:MM"）按上期所夜盘规则展开。key=该次收盘的唯一标识
+    （start/end/收盘日期），供风控去重（2026-10-22：旧实现用 10 分钟桶去重，
+    窗口内只动作一次，收盘前最后一分钟新挂的单没人管——用户实证）。"""
+    from datetime import timedelta
+
+    sec = now.hour * 3600 + now.minute * 60 + now.second + now.microsecond / 1e6
+    out = []
+    for sess in sessions or []:
+        try:
+            start_sec = _hm(sess["start"])
+            end_sec = _hm(sess["end"])
+        except Exception:
+            continue
+        cross = _cross_midnight(sess["end"])
+        if cross:
+            delta = (86400 - sec + end_sec) if sec >= start_sec else (end_sec - sec)
+        else:
+            delta = end_sec - sec
+        end_dt = now + timedelta(seconds=delta)
+        out.append(((str(sess.get("start")), str(sess.get("end")),
+                     end_dt.date().isoformat()), delta, end_dt))
+    return out
+
+
 class CloseRiskGuard:
-    """时点前（默认 60 秒，可配）自动 stop_all（撤所有触发单+停所有算法，持仓保留）并提醒一次。
+    """收盘/休市风控（两阶段，2026-10-22 重写）：
 
-    settings 读取：algo.close_risk_seconds（提前量，0=关闭）、algo.close_risk_breaks（小节休息触发）。"""
+    ① 窗口内（end 前 N 秒，默认 60）：stop_all + 设置下单锁（窗口内不再接受新挂单）
+       ——旧实现只动作一次，之后同一分钟新挂的单仍会拆腿委托留到收盘（用户实证）。
+    ② end 时点后（120 秒兜底窗）：再 stop_all 一次并撤销柜台全部剩余挂单
+       ——保证无限易里不留孤儿挂单（FAOS_CLOSE_SWEEP 日志）。
 
-    def __init__(self, manager, settings=None):
+    settings 读取：algo.close_risk_seconds（提前量，0=关闭）。"""
+
+    _SWEEP_SEC = 120  # end 之后的兜底窗口（秒）
+
+    def __init__(self, manager, settings=None, cancel_all=None):
         self._manager = manager
         self._settings = settings
-        self._fired_key = None  # (触发时点秒数) 窗口内只动作一次；离开复位
+        self._cancel_all = cancel_all  # 柜台总撤（main 注入 ctp.cancel_all_active_orders）
+        self._fired: set = set()  # 已做窗口内预停的收盘点 key
+        self._swept: set = set()  # 已做收盘后兜底总撤的收盘点 key
 
     def _cfg(self):
         algo = getattr(self._settings, "algo", None)
@@ -819,19 +870,29 @@ class CloseRiskGuard:
         window, sessions = self._cfg()
         if window <= 0:
             return  # 风控关闭
-        remain = seconds_to_close(now, window=window, sessions=sessions)
-        if remain is None:
-            self._fired_key = None  # 离开窗口 → 复位
-            return
-        key = (now.hour, now.minute // 10)  # 同一窗口内去重（10 分钟桶）
-        if self._fired_key == key:
-            return
-        self._fired_key = key
         from faos_app.log import log
 
-        log(f"FAOS_CLOSE_RISK 时点前 {remain}s 风控触发：停止全部下单并撤所有挂单")
-        self._manager.stop_all()
-        self._manager.push.notice(
-            "warn",
-            f"收盘/休市风险控制：距时点 {remain} 秒，已自动停止全部下单并撤销所有挂单"
-            "（持仓保留）——临近收盘/休市流动性枯竭，请勿再挂新单")
+        for key, delta, end_dt in session_end_infos(now, sessions):
+            if 0 < delta <= window and key not in self._fired:
+                self._fired.add(key)
+                log(f"FAOS_CLOSE_RISK 时点前 {int(delta)}s 风控触发："
+                    "停止全部下单、撤销挂单并锁定新单")
+                self._manager.stop_all()
+                self._manager.set_close_lock(end_dt)  # 窗口内禁止新挂单
+                self._manager.push.notice(
+                    "warn",
+                    f"收盘/休市风险控制：距时点 {int(delta)} 秒，已自动停止全部下单并撤销"
+                    "所有挂单（持仓保留），时点前不再接受新挂单")
+            elif -self._SWEEP_SEC <= delta <= 0 and key not in self._swept:
+                self._swept.add(key)
+                self._manager.stop_all()  # 兜底再停一次（可能有人在窗口外挂了单）
+                n = 0
+                if self._cancel_all is not None:
+                    try:
+                        n = int(self._cancel_all() or 0)
+                    except Exception as e:
+                        log(f"FAOS_CLOSE_SWEEP_FAIL {e}")
+                log(f"FAOS_CLOSE_SWEEP 时点后兜底：撤销柜台剩余挂单 {n} 笔")
+                self._manager.push.notice(
+                    "warn",
+                    f"已到收盘/休市时点，兜底撤销柜台全部剩余挂单 {n} 笔（持仓保留）")

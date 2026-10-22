@@ -78,7 +78,8 @@ def _build_services(settings: Settings, portal, pusher: Pusher) -> AppState:
         # 收盘前 30 秒风控：自动停全部下单+撤所有挂单并提醒（2026-10-19 定稿）
         from faos_app.strategy_manager import CloseRiskGuard
         from datetime import datetime as _dt
-        close_risk = CloseRiskGuard(manager, settings)
+        close_risk = CloseRiskGuard(manager, settings,
+                                   cancel_all=ctp.cancel_all_active_orders)  # 收盘后兜底总撤
 
         async def _close_risk_loop():
             import anyio
