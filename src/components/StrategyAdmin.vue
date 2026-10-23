@@ -232,7 +232,7 @@ async function removeStrategy() {
         </div>
         <a-button size="small" type="primary" @click="saveLots">保存份数</a-button>
       </div>
-      <p class="hint">{{ holdTxt(s) }}，上限校验：开仓成交后 |净持仓+在途| ≤ 总份（做空/做多可双向同时挂单，按净额校验）。</p>
+      <p class="hint">{{ holdTxt(s) }}，上限校验：做多/做空各自限总份（持仓+在途 ≤ 总份，双向互不占用；平仓不占额度）。</p>
     </template>
     <div v-else class="placeholder">点击上方表格选择一个策略后在此管理</div>
   </div>

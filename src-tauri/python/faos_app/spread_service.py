@@ -601,14 +601,17 @@ class SpreadService:
                 continue
             self._stopping_orders.add(o.vt_orderid)
 
-    def pending_units(self, strategy_id: int) -> float:
-        """该策略在途算法的净敞口份数（已启动未完成）——挂单净额校验计入
+    def pending_open_units(self, strategy_id: int) -> dict:
+        """该策略在途**开仓**算法的方向份数 {"long": x, "short": y}（2026-10-24
+        用户定稿：总份按方向独立——做多/做空各自限总份，互不占用）。
+
+        只计开仓（closing 不占开仓额度——平仓是减仓）；在途开仓计入
         （2026-10-20 实证：执行中 held 未更新，1 秒内双挂同向单 → 总份 1 开成 2 份）。"""
-        total = 0.0
+        out = {"long": 0.0, "short": 0.0}
         for rearm in self._algo_rearm.values():
-            sid, action, _, lots, _closing = rearm
-            if sid != strategy_id:
+            sid, action, _, lots, closing = rearm
+            if sid != strategy_id or closing:
                 continue
-            # 净额口径：盘口方向即净额变化方向（开多/平空均为 +，开空/平多均为 -）
-            total += lots if _ACTION_DIRECTION[action] == Direction.LONG else -lots
-        return round(total, 6)
+            key = "long" if _ACTION_DIRECTION[action] == Direction.LONG else "short"
+            out[key] = round(out[key] + lots, 6)
+        return out

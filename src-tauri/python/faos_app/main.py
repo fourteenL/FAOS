@@ -68,7 +68,7 @@ def _build_services(settings: Settings, portal, pusher: Pusher) -> AppState:
         )
         monitor.set_executor(spread_service)
         state.spread_service = spread_service
-        manager.set_pending_units_provider(spread_service.pending_units)  # 挂单净额校验计入在途算法
+        manager.set_pending_units_provider(spread_service.pending_open_units)  # 挂单方向份额度校验计入在途开仓
         manager.set_account_pool_provider(spread_service.account_close_pool)  # 平仓池账本为 0 时回落柜台实际
         manager.on_stop_hooks.append(spread_service.stop_algos)
         manager.on_direction_stop_hooks.append(spread_service.stop_algos_direction)  # 方向级停止同步停该侧算法

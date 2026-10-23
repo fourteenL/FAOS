@@ -59,10 +59,6 @@ def _now() -> str:
     return datetime.now().isoformat(timespec="seconds")
 
 
-def _pending_txt(v: float) -> str:
-    return f"{v:+g} 份" if abs(v) > 1e-9 else "0"
-
-
 class StrategyManager:
     def __init__(self, store: StrategyStore, push,
                  legs_subscriber: Optional[Callable[[list], None]] = None,
@@ -133,13 +129,15 @@ class StrategyManager:
             return acct
         return min(ledger, acct)
 
-    def _pending_units(self, strategy_id: int) -> float:
+    def _pending_units(self, strategy_id: int) -> dict:
+        """在途开仓方向份数 {"long","short"}；provider 缺席/异常时全 0。"""
         if self._pending_units_provider is None:
-            return 0.0
+            return {"long": 0.0, "short": 0.0}
         try:
-            return float(self._pending_units_provider(strategy_id) or 0)
+            v = self._pending_units_provider(strategy_id)
+            return v if isinstance(v, dict) else {"long": 0.0, "short": 0.0}
         except Exception:
-            return 0.0
+            return {"long": 0.0, "short": 0.0}
 
     # -- 创建 / 生命周期 ------------------------------------------------------
 
@@ -472,8 +470,8 @@ class StrategyManager:
             raise ValueError("无空头价差持仓，无法挂空平触发单")
         if action == TriggerAction.close_long and s.held_units <= 0:
             raise ValueError("无多头价差持仓，无法挂多平触发单")
-        if action in _OPEN_ACTIONS:
-            # 总份按净额校验（与交易所双向净仓一致）：对向开仓（含反向平仓）不占新额度；
+        if action in _OPEN_ACTIONS and not is_close_order:
+            # 总份校验（方向独立口径）；平仓通道（is_close）不占额度——份数已 clamp 到持仓；
             # 修改挂单价（replace）时旧挂单将被撤掉——净敞口按新旧差值计
             # （2026-10-15 夜盘实证：持仓满份时改自己挂单的价被误拒，只能调总份绕过）；
             # 在途算法计入（2026-10-20 实证：执行中 held 未更新，1 秒双挂 → 总份 1 开成 2 份）
@@ -483,12 +481,18 @@ class StrategyManager:
                               if t.trigger_id == replace_trigger_id and t.action == action), None)
                 if old_t is not None:
                     effective = lots - old_t.lots
-            signed = effective if action == TriggerAction.open_long else -effective
-            after = round(s.held_units + signed + self._pending_units(s.id), 6)
-            if abs(after) > s.total_lots:
+            # 方向独立口径（2026-10-24 用户定稿）：做多/做空各自限总份、互不占用
+            # （例：单份 2 总份 4 → 多仓可开满 4 份，同时空仓也可开满 4 份）；
+            # 在途开仓计入（执行中 held 未更新，防 1 秒双挂超额）；平仓通道不占额度。
+            key = "long" if action == TriggerAction.open_long else "short"
+            pend = self._pending_units(s.id)
+            held_dir = s.held_long_units if key == "long" else s.held_short_units
+            after = round(held_dir + pend[key] + effective, 6)
+            if after > s.total_lots:
                 raise ValueError(
-                    f"超出总份限制：成交后净持仓 {after:+g} 份（含在途 {_pending_txt(self._pending_units(s.id))}）"
-                    f" > 总份 {s.total_lots:g} 份")
+                    f"超出{'做多' if key == 'long' else '做空'}总份限制："
+                    f"持仓 {held_dir:g} + 在途 {pend[key]:g} + 本单 {effective:g}"
+                    f" = {after:g} 份 > 总份 {s.total_lots:g} 份（做多/做空各自限总份）")
         setattr(s, _MANUAL_FIELD[action], spread)  # 下单价保存进策略价差（行情退役后差价来源=人工）
         if companion_spread is not None:  # 开仓下单时对应平仓价一并保存（用户定稿）
             setattr(s, _CLOSE_COMPANION[action], companion_spread)
