@@ -62,6 +62,7 @@ class SpreadService:
         # 归属：算法委托 reference="SpreadTrading_{pair}" → 委托号→pair 映射 → 成交入账。
         self._order_pair: dict[str, str] = {}  # vt_orderid -> pair（算法委托）
         self._booked_tradeids: set = set()  # 已入账成交号（事件重放去重）
+        self._stopping_orders: set = set()  # 主动撤（停止/超时/急停/退出/清理）的委托号——撤单数不计
         if event_engine is not None:
             self._install_algo_class()
             event_engine.register(EVENT_SPREAD_ALGO, self._wrap_algo_handler)
@@ -157,6 +158,7 @@ class SpreadService:
                 self._strategy_stopper(strategy.id)
             except Exception as e:
                 log(f"FAOS_CANCEL_CAP_HALT_FAIL #{strategy.id} {e}")
+        self.mark_stopping_orders([strategy.pair])
         cancelled = 0
         for leg in (strategy.leg_a, strategy.leg_b):
             sym = vt_symbol_of(leg)
@@ -191,6 +193,14 @@ class SpreadService:
         # 平仓通道=按钮专用（2026-10-16 定稿修订）：按挂单 is_close 标记判定，
         # 不再看方向与持仓的关系——手动反向挂单=正常开仓（锁仓，不净任何持仓）
         closing = bool(getattr(trigger, "is_close", False))
+        # 开仓对向昨仓拦截（2026-10-23 用户定稿，修「平昨乱仓」）：vnpy lock 转换
+        # 在上期所「先平昨再开」——账户两腿存在对向昨仓时开仓会把它平掉（共享腿
+        # ag2612 场景=吃掉他策略/本策略昨仓，10-23 log LEDGER_CLAMPED 乱仓实证）。
+        # 拒单点名腿与手数，人工先处理（平仓按钮/今昨仓管理）再开；平仓单不拦。
+        if not closing:
+            block = self._opposite_yd_blocking(strategy, trigger.action)
+            if block:
+                raise ValueError(block)
         # 平仓显式今昨拆分（2026-10-19 定稿，修平仓归属错位）：共享主力腿的两策略
         # 各自平仓时，账户级净仓转换会错吃对方的今昨仓——按本策略账本显式发
         # 平今/平昨单（先平昨省费）；账本不足的量在算法内回落账户级
@@ -250,6 +260,7 @@ class SpreadService:
         return min(tot(a, "long"), tot(b, "short"))  # 平多：A 卖（需 A 多）、B 买（需 B 空）
 
     def stop_algos(self, strategy: Strategy) -> None:
+        self.mark_stopping_orders([strategy.pair])
         for algoid in list(strategy.active_algos):
             if self._engine is not None:
                 self._engine.stop_algo(algoid)
@@ -266,6 +277,8 @@ class SpreadService:
         open_short(SHORT) 算法属做多侧；普通算法按 direction 本侧。
         （旧逻辑按 direction 直判：平空算法被归做多侧 → 做空区停止无效。）"""
         from vnpy.trader.constant import Direction
+
+        self.mark_stopping_orders([strategy.pair])
 
         def algo_on_side(algoid) -> bool:
             action = self._algo_action.get(algoid)
@@ -307,6 +320,11 @@ class SpreadService:
             if now - started <= timeout:
                 continue
             self._algo_started.pop(algoid, None)
+            _r = self._algo_rearm.get(algoid)
+            if _r is not None and self._store is not None:
+                _s = self._store.get(_r[0])
+                if _s is not None:
+                    self.mark_stopping_orders([_s.pair])
             if self._engine is not None:
                 self._engine.stop_algo(algoid)
             rearm = self._algo_rearm.pop(algoid, None)
@@ -371,8 +389,16 @@ class SpreadService:
             self._order_pair[order.vt_orderid] = ref[len(prefix):]
         if order.status != _Status.CANCELLED:
             return
+        if order.vt_orderid in self._stopping_orders:
+            self._stopping_orders.discard(order.vt_orderid)
+            return  # 停止/超时/急停/退出/清理的主动撤单不计（2026-10-23 用户定稿）
+        ref = getattr(order, "reference", "") or ""
         for s in self._store.list() if self._store else []:
             if vt_symbol_of(s.leg_a) != order.vt_symbol:
+                continue
+            # 只统计本策略算法委托的追价撤单：reference 归属（无限易手动撤单/
+            # 共享 A 腿的他策略撤单不计——2026-10-23 修「没启动策略撤单数也涨」）
+            if ref != f"{APP_NAME}_{s.pair}":
                 continue
             if order.vt_orderid in s.cancelled_orderids:
                 return  # 同单重复回报只计一次
@@ -521,6 +547,59 @@ class SpreadService:
                 "两腿可能未全部对冲（单腿敞口），请在腿部卡片/无限易核对持仓")
         if self._monitor is not None:
             self._monitor.on_algo_finished(s.id, item.algoid)
+
+    def _opposite_yd_blocking(self, strategy: Strategy, action) -> Optional[str]:
+        """开仓两腿的账户对向昨仓检测：存在即返回拒单文案，否则 None。
+
+        开多价差（A 买 B 卖）对向=A 空昨 / B 多昨；开空价差（A 卖 B 买）对向=
+        A 多昨 / B 空昨。柜台不可达（未连接）不拦。"""
+        try:
+            positions = self._ctp.get_positions()
+        except Exception:
+            return None
+        if positions is None:
+            return None
+        yd = {}  # vt_symbol -> {long, short} 昨仓
+        for pos in positions:
+            v = getattr(getattr(pos, "direction", None), "value", None) or str(getattr(pos, "direction", ""))
+            d = {"多": "long", "空": "short"}.get(v, str(v).lower())
+            if d not in ("long", "short"):
+                continue
+            row = yd.setdefault(pos.vt_symbol, {"long": 0.0, "short": 0.0})
+            row[d] += float(getattr(pos, "yd_volume", 0) or 0)
+        a, b = vt_symbol_of(strategy.leg_a), vt_symbol_of(strategy.leg_b)
+        want_a, want_b = (("short", "long") if action == TriggerAction.open_long
+                          else ("long", "short"))
+        blocks = []
+        if yd.get(a, {}).get(want_a, 0) > 1e-9:
+            blocks.append(f"{strategy.leg_a} {'空' if want_a == 'short' else '多'}昨 {yd[a][want_a]:g} 手")
+        if yd.get(b, {}).get(want_b, 0) > 1e-9:
+            blocks.append(f"{strategy.leg_b} {'空' if want_b == 'short' else '多'}昨 {yd[b][want_b]:g} 手")
+        if not blocks:
+            return None
+        return ("开仓会先平掉对向昨仓（" + "、".join(blocks) + "）——共享腿的他策略/昨日"
+                "遗留持仓会被吃掉导致乱仓；请先用「平仓」按钮或今昨仓管理处理反向"
+                "持仓后再开仓")
+
+    def mark_stopping_orders(self, pairs=None) -> None:
+        """预标记即将主动撤的算法委托（停止/超时/急停/退出/会话清理）：
+        其撤单回报不计入 A 腿撤单数（2026-10-23 用户定稿，修「撤单数虚增」）。
+        pairs=None 标记全部策略。"""
+        try:
+            orders = self._ctp.get_all_active_orders()
+        except Exception:
+            return
+        if orders is None:
+            return
+        if len(self._stopping_orders) > 10000:
+            self._stopping_orders.clear()
+        for o in orders:
+            ref = getattr(o, "reference", "") or ""
+            if not ref.startswith(f"{APP_NAME}_"):
+                continue
+            if pairs is not None and ref[len(APP_NAME) + 1:] not in pairs:
+                continue
+            self._stopping_orders.add(o.vt_orderid)
 
     def pending_units(self, strategy_id: int) -> float:
         """该策略在途算法的净敞口份数（已启动未完成）——挂单净额校验计入

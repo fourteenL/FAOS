@@ -103,18 +103,11 @@ class FaosTakerAlgo(SpreadTakerAlgo):
             self.write_log("算法已停止（停止即终结，不再补腿；未对冲敞口请人工核对）")
             self.put_event()
 
-    def update_order(self, order) -> None:
-        """委托终结即移出在途表（2026-10-21，「挂不了单」根因之一）：
-
-        基类只在 REJECTED/CANCELLED 时移除，ALLTRADED 依赖 update_trade 的
-        成交量相等判断——成交/委托事件乱序或缺成交回报时该单号永久滞留，
-        is_order_finished() 永远为假 → 算法永不终结 → 策略卡「执行中」→
-        同向/平仓触发单全部不再点火（用户表现：突然挂不了单）。"""
-        super().update_order(order)
-        if order.status in _FINAL_STATUS:
-            ids = self.leg_orders.get(order.vt_symbol)
-            if ids and order.vt_orderid in ids:
-                ids.remove(order.vt_orderid)
+    # 注意：**不覆写 update_order 提前移除 ALLTRADED 委托**（2026-10-23 定稿）。
+    # 2026-10-21 曾加「委托终结即移出在途」防「卡执行中」，但委托全成交回报可能
+    # 先于成交回报到达——该间隙 is_order_finished 变真导致对冲腿重复下单
+    # （10-22 夜 B 腿买 2 次实证）。回到 vnpy 基类结算（成交回报驱动移出），
+    # 极端缺成交回报的场景由 300 秒看门狗超时兜底停止。
 
     def cancel_leg_order(self, vt_symbol: str) -> None:
         """撤在途委托（已终结的跳过：CTP 错误 26「报单已全成交或已撤销，不能再撤」）。"""

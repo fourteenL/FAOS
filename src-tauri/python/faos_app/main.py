@@ -78,7 +78,12 @@ def _build_services(settings: Settings, portal, pusher: Pusher) -> AppState:
         # 收盘前 30 秒风控：自动停全部下单+撤所有挂单并提醒（2026-10-19 定稿）
         from faos_app.strategy_manager import CloseRiskGuard
         from datetime import datetime as _dt
-        close_risk = CloseRiskGuard(manager, settings)
+        # 兜底总撤前先预标记（撤单回报不计入 A 腿撤单数）
+        def _risk_cancel_all():
+            spread_service.mark_stopping_orders()
+            return ctp.cancel_all_active_orders()
+
+        close_risk = CloseRiskGuard(manager, settings, cancel_all=_risk_cancel_all)
 
         async def _close_risk_loop():
             import anyio
@@ -126,6 +131,8 @@ def _on_ctp_ready(state, ctp) -> None:
     except Exception as e:
         log(f"FAOS_LEDGER_CLAMP_FAIL {e}")
     try:
+        if state.spread_service is not None:
+            state.spread_service.mark_stopping_orders()
         cleaned = ctp.cancel_all_active_orders()
         if cleaned:
             log(f"FAOS_STALE_ORDERS_CLEANED {cleaned}")
@@ -171,6 +178,8 @@ def main() -> int:
                 if state.manager is not None:
                     state.manager.stop_all()
                 if state.ctp is not None:
+                    if state.spread_service is not None:
+                        state.spread_service.mark_stopping_orders()
                     n = state.ctp.cancel_all_active_orders()
                     if n:
                         log(f"FAOS_EXIT_ORDERS_CANCELLED {n}")

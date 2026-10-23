@@ -76,6 +76,7 @@ class StrategyManager:
         self._contract_stale_notifier = contract_stale_notifier or (lambda product: None)
         self._settings = settings
         self._pending_units_provider = None  # 在途算法净敞口查询（main 注入 spread_service.pending_units）
+        self._close_risk_locked = False      # 收盘风控下单锁（窗口内拒新挂单）
         self._account_pool_provider = None   # 账户可平份数查询（main 注入 spread_service.account_close_pool）
         self._dominant_hints: dict[str, dict] = {}  # product -> {vt_symbol: 持仓量}（市场实测）
         # 停止策略时的扩展点（T10 的 spread_service 注册撤算法钩子）
@@ -91,6 +92,10 @@ class StrategyManager:
     @property
     def push(self):
         return self._push
+
+    def set_close_risk_lock(self, on: bool) -> None:
+        """收盘风控下单锁（True=窗口内拒新挂单；时点后自动解除）。"""
+        self._close_risk_locked = bool(on)
 
     def set_pending_units_provider(self, fn) -> None:
         """在途算法净敞口查询注入（main 装配：spread_service.pending_units）。"""
@@ -438,6 +443,8 @@ class StrategyManager:
                        replace_trigger_id: Optional[str] = None,
                        is_close_order: bool = False) -> Trigger:
         s = self._require(strategy_id)
+        if self._close_risk_locked:
+            raise ValueError("临近收盘/休市（风控锁），时点前暂不接受新挂单，时点后自动恢复")
         if s.status == StrategyStatus.stopped:
             raise ValueError("策略已停止，无法挂触发单")
         lots = s.single_lots if lots is None else lots
@@ -798,14 +805,21 @@ def seconds_to_close(now, window: int = 60, sessions: Optional[list] = None) -> 
 
 
 class CloseRiskGuard:
-    """时点前（默认 60 秒，可配）自动 stop_all（撤所有触发单+停所有算法，持仓保留）并提醒一次。
+    """收盘/休市风控（2026-10-23 定稿，最小实现——不碰交易发送链路）：
 
-    settings 读取：algo.close_risk_seconds（提前量，0=关闭）、algo.close_risk_breaks（小节休息触发）。"""
+    - 窗口内（end 前 N 秒，默认 60）：stop_all + 开启下单锁（place_trigger 拒绝
+      新挂单，含平仓通道——时点后自动解锁）；窗口内持续巡检，发现新活动再撤。
+    - 时点边沿（窗口结束的第一 tick）：兜底再 stop_all + 撤销柜台全部剩余挂单
+      （FAOS_CLOSE_SWEEP，防无限易残留孤儿单）。
 
-    def __init__(self, manager, settings=None):
+    settings 读取：algo.close_risk_seconds（提前量，0=关闭）。"""
+
+    def __init__(self, manager, settings=None, cancel_all=None):
         self._manager = manager
         self._settings = settings
-        self._fired_key = None  # (触发时点秒数) 窗口内只动作一次；离开复位
+        self._cancel_all = cancel_all  # 柜台总撤回调（main 注入，可缺省）
+        self._in_window = False
+        self._notified = False
 
     def _cfg(self):
         algo = getattr(self._settings, "algo", None)
@@ -815,23 +829,43 @@ class CloseRiskGuard:
             sessions = load_market_sessions()
         return window, sessions
 
+    def _has_activity(self) -> bool:
+        return any(s.triggers or s.active_algos for s in self._manager.store.list())
+
     def tick(self, now) -> None:
-        window, sessions = self._cfg()
-        if window <= 0:
-            return  # 风控关闭
-        remain = seconds_to_close(now, window=window, sessions=sessions)
-        if remain is None:
-            self._fired_key = None  # 离开窗口 → 复位
-            return
-        key = (now.hour, now.minute // 10)  # 同一窗口内去重（10 分钟桶）
-        if self._fired_key == key:
-            return
-        self._fired_key = key
         from faos_app.log import log
 
-        log(f"FAOS_CLOSE_RISK 时点前 {remain}s 风控触发：停止全部下单并撤所有挂单")
-        self._manager.stop_all()
-        self._manager.push.notice(
-            "warn",
-            f"收盘/休市风险控制：距时点 {remain} 秒，已自动停止全部下单并撤销所有挂单"
-            "（持仓保留）——临近收盘/休市流动性枯竭，请勿再挂新单")
+        window, sessions = self._cfg()
+        if window <= 0:
+            if self._in_window:
+                self._in_window = False
+                self._manager.set_close_risk_lock(False)
+            return  # 风控关闭
+        remain = seconds_to_close(now, window=window, sessions=sessions)
+        if remain is not None:  # 窗口内：锁新单 + 持续撤活动
+            first = not self._in_window
+            self._in_window = True
+            self._manager.set_close_risk_lock(True)
+            if self._has_activity():
+                log(f"FAOS_CLOSE_RISK 时点前 {remain}s 风控触发：停止全部下单并撤所有挂单")
+                self._manager.stop_all()
+            if first and not self._notified:
+                self._notified = True
+                self._manager.push.notice(
+                    "warn",
+                    f"收盘/休市风险控制：距时点 {remain} 秒，已停止全部下单并撤销挂单"
+                    "（持仓保留），时点前暂不接受新挂单——临近收盘/休市流动性枯竭")
+        elif self._in_window:  # 时点边沿：兜底总撤一次 + 解锁
+            self._in_window = False
+            self._manager.set_close_risk_lock(False)
+            self._notified = False
+            self._manager.stop_all()
+            n = 0
+            if self._cancel_all is not None:
+                try:
+                    n = int(self._cancel_all() or 0)
+                except Exception as e:
+                    log(f"FAOS_CLOSE_SWEEP_FAIL {e}")
+            log(f"FAOS_CLOSE_SWEEP 时点后兜底：撤销柜台剩余挂单 {n} 笔")
+            self._manager.push.notice(
+                "warn", f"已到收盘/休市时点，兜底撤销柜台全部剩余挂单 {n} 笔（持仓保留）")
