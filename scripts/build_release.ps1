@@ -81,7 +81,7 @@ $cfg.version = $version
 $cfg | ConvertTo-Json -Depth 20 | Set-Content $bundleCfg -Encoding UTF8
 
 # 3.6 版本号写入 pyembed 的 faos_app/_version.py（启动日志带版本，2026-10-24）
-$verFile = Join-Path $pyembed "Lib\site-packagesaos_app\_version.py"
+$verFile = Join-Path $pyembed "Lib/site-packages/faos_app/_version.py"
 if (Test-Path $verFile) {
     Set-Content -Path $verFile -Value "__version__ = `"$version`"" -Encoding UTF8
     Write-Host "[3.6/4] 版本号已写入 $version"
