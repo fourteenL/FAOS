@@ -13,7 +13,7 @@ from vnpy.trader.event import EVENT_ORDER, EVENT_TRADE
 from vnpy_spreadtrading import APP_NAME
 from vnpy_spreadtrading.base import EVENT_SPREAD_ALGO, AlgoItem, LegData, SpreadData
 
-from faos_app.models import Strategy, StrategyStatus, TriggerAction
+from faos_app.models import Strategy, TriggerAction
 
 _FINISHED_STATUS = {Status.ALLTRADED, Status.CANCELLED, Status.REJECTED}
 _ACTION_DIRECTION = {
@@ -62,9 +62,6 @@ class SpreadService:
         # 归属：算法委托 reference="SpreadTrading_{pair}" → 委托号→pair 映射 → 成交入账。
         self._order_pair: dict[str, str] = {}  # vt_orderid -> pair（算法委托）
         self._booked_tradeids: set = set()  # 已入账成交号（事件重放去重）
-        # 主动撤（停止/超时/急停/退出）的委托号：撤单回报不计入 A 腿撤单数
-        # （2026-10-22 实证：停止策略撤单数也涨；手动撤单被算进所有 A 腿同符号策略）
-        self._stop_cancelled: set = set()
         if event_engine is not None:
             self._install_algo_class()
             event_engine.register(EVENT_SPREAD_ALGO, self._wrap_algo_handler)
@@ -202,7 +199,6 @@ class SpreadService:
             "slip_b": strategy.slip_b,
             "order_type_a": strategy.order_type_a,
             "order_type_b": strategy.order_type_b,
-            "closing": closing,  # 开仓显式 OPEN / 平仓显式平今平昨（算法内分流，2026-10-22）
         }
         if closing:
             split = self._plan_close_split(strategy, trigger)
@@ -253,29 +249,8 @@ class SpreadService:
             return min(tot(a, "short"), tot(b, "long"))
         return min(tot(a, "long"), tot(b, "short"))  # 平多：A 卖（需 A 多）、B 买（需 B 空）
 
-    def _mark_stopping(self, algoid: str) -> None:
-        """记录该算法在途委托号：随后到达的撤单回报属主动撤，不计撤单数。
-
-        真实引擎 algo_engine.algos[algoid].leg_orders 可取到在途单号；
-        Fake/异常时静默（撤单回报计数按 reference 归属仍生效）。"""
-        eng = self._engine
-        if eng is None:
-            return
-        ae = getattr(eng, "algo_engine", eng)
-        algos = getattr(ae, "algos", None)
-        if not isinstance(algos, dict):
-            return
-        algo = algos.get(algoid)
-        if algo is None:
-            return
-        for ids in getattr(algo, "leg_orders", {}).values():
-            self._stop_cancelled.update(ids)
-        if len(self._stop_cancelled) > 20000:  # 防御：无撤单回报时也有限
-            self._stop_cancelled.clear()
-
     def stop_algos(self, strategy: Strategy) -> None:
         for algoid in list(strategy.active_algos):
-            self._mark_stopping(algoid)
             if self._engine is not None:
                 self._engine.stop_algo(algoid)
             self._algo_direction.pop(algoid, None)
@@ -307,7 +282,6 @@ class SpreadService:
         for algoid in list(strategy.active_algos):
             if not algo_on_side(algoid):
                 continue
-            self._mark_stopping(algoid)
             if self._engine is not None:
                 self._engine.stop_algo(algoid)
             self._algo_direction.pop(algoid, None)
@@ -333,7 +307,6 @@ class SpreadService:
             if now - started <= timeout:
                 continue
             self._algo_started.pop(algoid, None)
-            self._mark_stopping(algoid)
             if self._engine is not None:
                 self._engine.stop_algo(algoid)
             rearm = self._algo_rearm.pop(algoid, None)
@@ -354,44 +327,6 @@ class SpreadService:
             self._push.notice(
                 "warn", f"价差算法 {algoid} 追价超时（{timeout} 秒未完成），已自动停止，请检查腿部持仓"
             )
-        self._cleanup_orphan_algos()
-
-    def _engine_algos(self):
-        """引擎当前在跑的 algoid 集合（真实引擎 algo_engine.algos；Fake/缺失返回 None）。"""
-        eng = self._engine
-        if eng is None:
-            return None
-        ae = getattr(eng, "algo_engine", eng)
-        algos = getattr(ae, "algos", None)
-        return set(algos.keys()) if isinstance(algos, dict) else None
-
-    def _cleanup_orphan_algos(self) -> None:
-        """引擎已无该算法但策略仍记在 active_algos（完成事件丢失）→ 清理状态。
-
-        2026-10-22：旧实现靠 update_order 提前移除 ALLTRADED 委托来防「卡执行中」，
-        代价是对冲腿被重复下单；改为此处按引擎实际状态自愈，不动委托/对冲逻辑。"""
-        alive = self._engine_algos()
-        if alive is None or self._store is None:
-            return
-        for s in self._store.list():
-            changed = False
-            for algoid in list(s.active_algos):
-                if algoid in alive or algoid in self._algo_started:
-                    continue  # 仍在引擎或仍在计时（刚启动）
-                s.active_algos.remove(algoid)
-                changed = True
-                if self._monitor is not None:
-                    self._monitor.on_algo_finished(s.id, algoid)
-                self._push.notice(
-                    "warn", f"策略 #{s.id} {s.pair} 算法 {algoid} 已结束但未收到完成事件，"
-                    "状态已清理——请核对腿部/策略持仓")
-            if changed:
-                if not s.active_algos:
-                    s.executing_action = None
-                    s.status = (StrategyStatus.armed if s.triggers
-                                else StrategyStatus.active)
-                self._store.update(s)
-                self._push.strategy(s)
 
     def start_watchdog(self, portal) -> None:
         """portal 线程上每 10 秒跑一次看门狗。"""
@@ -436,21 +371,8 @@ class SpreadService:
             self._order_pair[order.vt_orderid] = ref[len(prefix):]
         if order.status != _Status.CANCELLED:
             return
-        if order.vt_orderid in self._stop_cancelled:
-            self._stop_cancelled.discard(order.vt_orderid)
-            return  # 停止/超时/急停/退出导致的主动撤单不计（2026-10-22 用户定稿）
-        # 只统计「本策略正在跑的算法」的追价撤单：委托→算法（引擎 order_algo_map），
-        # 算法已停止/已不在运行（含上次会话遗留单的就绪清理）一律不计
-        algo = self._algo_of_order(order)
-        if algo is not None:
-            if getattr(algo, "stopped", False) or                     getattr(algo, "algoid", None) not in self._algo_started:
-                return
         for s in self._store.list() if self._store else []:
             if vt_symbol_of(s.leg_a) != order.vt_symbol:
-                continue
-            # 只统计本策略算法委托的追价撤单：reference 归属（手动/无限易/他策略不计，
-            # 2026-10-22 实证：没启动策略撤单数也一直涨——共享 A 腿符号被误计）
-            if ref != f"{APP_NAME}_{s.pair}":
                 continue
             if order.vt_orderid in s.cancelled_orderids:
                 return  # 同单重复回报只计一次
@@ -461,17 +383,6 @@ class SpreadService:
             if s.cancel_count_a >= s.max_cancels_a:
                 self._halt_on_cap(s)
             return
-
-    def _algo_of_order(self, order):
-        """委托号 → 算法对象（真实引擎 order_algo_map；Fake/缺失返回 None）。"""
-        eng = self._engine
-        if eng is None:
-            return None
-        ae = getattr(eng, "algo_engine", eng)
-        m = getattr(ae, "order_algo_map", None)
-        if not isinstance(m, dict):
-            return None
-        return m.get(order.vt_orderid)
 
     def _process_trade_event(self, trade) -> None:
         """本策略算法成交 → 策略级今昨账本入账（2026-10-19 定稿，修平仓归属错位）。
