@@ -107,8 +107,18 @@ def log(msg: str) -> None:
         pass
 
 
+def app_version() -> str:
+    """当前应用版本（_version.py；打包时被构建脚本覆写为发版号）。"""
+    try:
+        from faos_app import _version
+
+        return _version.__version__
+    except Exception:
+        return "unknown"
+
+
 def banner() -> None:
-    log(f"FAOS 启动 python={sys.version.split()[0]} argv={sys.argv[:2]}")
+    log(f"FAOS 启动 v{app_version()} python={sys.version.split()[0]} argv={sys.argv[:2]}")
 
 
 def _reset_for_test() -> None:

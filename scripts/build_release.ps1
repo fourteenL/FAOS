@@ -80,6 +80,15 @@ if ($Release) {
 $cfg.version = $version
 $cfg | ConvertTo-Json -Depth 20 | Set-Content $bundleCfg -Encoding UTF8
 
+# 3.6 版本号写入 pyembed 的 faos_app/_version.py（启动日志带版本，2026-10-24）
+$verFile = Join-Path $pyembed "Lib\site-packagesaos_app\_version.py"
+if (Test-Path $verFile) {
+    Set-Content -Path $verFile -Value "__version__ = `"$version`"" -Encoding UTF8
+    Write-Host "[3.6/4] 版本号已写入 $version"
+} else {
+    Write-Host "[3.6/4] 警告：未找到 $verFile（版本号保持 dev）"
+}
+
 # 4. tauri build（standalone bundle 配置 + bundle-release profile）
 Write-Host "[4/4] tauri build ..."
 $env:PYO3_PYTHON = "$pyembed\python.exe"
