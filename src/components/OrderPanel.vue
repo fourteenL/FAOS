@@ -206,24 +206,12 @@ async function closeNow(side) {
     message.warning("无对应持仓可平");
     return;
   }
-  let spread = side === "short" ? form.close_short : form.close_long;
+  const spread = side === "short" ? form.close_short : form.close_long;
   if (spread == null) {
-    // 默认价（2026-10-24 定稿）：空框自动预填对侧实时价——平空挂 open_long
-    // （触发条件 多开≤填价），预填=当前多开；平多挂 open_short（空开≥填价），
-    // 预填=当前空开——等于当前价即立即触发，免去手填离市价过远等不到的坑
-    const live = cur.value?.live
-      ? (side === "short" ? cur.value.long_open : cur.value.short_open)
-      : null;
-    if (live == null) {
-      message.warning(side === "short"
-        ? "请填写空平差价（或等行情到达后自动预填当前多开价）"
-        : "请填写多平差价（或等行情到达后自动预填当前空开价）");
-      return;
-    }
-    spread = Number(live);
-    if (side === "short") form.close_short = spread;
-    else form.close_long = spread;
-    message.info(`已按当前${side === "short" ? "多开" : "空开"}价 ${spread} 自动填价（立即触发取向）`);
+    message.warning(side === "short"
+      ? "请填写空平差价（当前多开价附近可尽快触发）"
+      : "请填写多平差价（当前空开价附近可尽快触发）");
+    return;
   }
   const action = side === "short" ? "open_long" : "open_short";  // 平空=买回=多开方向
   const old = openTriggerOf(action);  // 旧的平仓尝试挂单自动替换
@@ -284,7 +272,7 @@ const ACTION_ZH = { open_short: "做空开", open_long: "做多开", close_short
           <a-input-number v-model:value="form.close_short" :step="step" :precision="precision" size="small" style="width: 90px" @change="markDirty('close_short')" />
           <span class="cur" :class="{ off: !cur?.live }" title="实时空开价差（做空触发条件：空开 ≥ 填价；填价 ≤ 当前值即立即触发）">{{ fmtLive(cur?.short_open) }}</span>
           <span v-if="staleText" class="stale" title="任一腿行情停滞超阈值即不合成不触发（阈值可在设置中调整）；「无行情」=该腿从未收到 tick（远月/夜盘常无行情）">{{ staleText }}</span>
-          <a-button size="small" danger :disabled="!(s.held_short_units > 0)" title="按空平差价挂买回单（空框自动按当前多开价填价）；份数=单份（封顶空头持仓）" @click="closeNow('short')">平仓</a-button>
+          <a-button size="small" danger :disabled="!(s.held_short_units > 0)" title="按空平差价挂买回单，份数=单份（封顶空头持仓）；多次点击逐份平" @click="closeNow('short')">平仓</a-button>
           <span v-if="closeWaitTextTick('short')" class="wait">{{ closeWaitTextTick('short') }}</span>
           <a-button size="small" :disabled="!hasCloseActivity('short')" title="撤销本方向平仓挂单并停止执行中的平仓算法" @click="stopCurrent('short')">停止平仓</a-button>
         </div>
@@ -303,7 +291,7 @@ const ACTION_ZH = { open_short: "做空开", open_long: "做多开", close_short
           <a-input-number v-model:value="form.close_long" :step="step" :precision="precision" size="small" style="width: 90px" @change="markDirty('close_long')" />
           <span class="cur" :class="{ off: !cur?.live }" title="实时多开价差（做多触发条件：多开 ≤ 填价；填价 ≥ 当前值即立即触发）">{{ fmtLive(cur?.long_open) }}</span>
           <span v-if="staleText" class="stale" title="任一腿行情停滞超阈值即不合成不触发（阈值可在设置中调整）；「无行情」=该腿从未收到 tick（远月/夜盘常无行情）">{{ staleText }}</span>
-          <a-button size="small" danger :disabled="!(s.held_long_units > 0)" title="按多平差价挂卖出单（空框自动按当前空开价填价）；份数=单份（封顶多头持仓）" @click="closeNow('long')">平仓</a-button>
+          <a-button size="small" danger :disabled="!(s.held_long_units > 0)" title="按多平差价挂卖出单，份数=单份（封顶多头持仓）；多次点击逐份平" @click="closeNow('long')">平仓</a-button>
           <span v-if="closeWaitTextTick('long')" class="wait">{{ closeWaitTextTick('long') }}</span>
           <a-button size="small" :disabled="!hasCloseActivity('long')" title="撤销本方向平仓挂单并停止执行中的平仓算法" @click="stopCurrent('long')">停止平仓</a-button>
         </div>
