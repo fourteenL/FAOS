@@ -63,6 +63,7 @@ class SpreadService:
         self._order_pair: dict[str, str] = {}  # vt_orderid -> pair（算法委托）
         self._booked_tradeids: set = set()  # 已入账成交号（事件重放去重）
         self._stopping_orders: set = set()  # 主动撤（停止/超时/急停/退出/清理）的委托号——撤单数不计
+        self._rearm_counts: dict = {}  # (sid, action, spread) → 连续超时重挂次数（通知/日志可见）
         if event_engine is not None:
             self._install_algo_class()
             event_engine.register(EVENT_SPREAD_ALGO, self._wrap_algo_handler)
@@ -214,6 +215,13 @@ class SpreadService:
             split = self._plan_close_split(strategy, trigger)
             if split:
                 extra["close_split"] = split
+            else:
+                # 账本不足/未建：回落账户级净仓转换——共享腿上可能平掉其他策略
+                # 的持仓（2026-10-24 log 实证），不静默，点名提醒事后核对
+                self._push.notice(
+                    "warn",
+                    f"{strategy.pair} 平仓按账户实际持仓执行（本策略账本不足或未建，"
+                    "共享腿上可能涉及其他策略持仓），成交后请与无限易核对归属")
         # 策略隔离（2026-10-14 用户实证三问题同根：共享主力腿+净仓转换互相吃腿）：
         # 开仓锁仓（OPEN 永不净转换→上期所双向持仓，各策略腿物理隔离，也避免
         # 平今/平昨错配被柜台拒单）；反向平仓保持净仓（实际对冲本策略两腿）
@@ -329,14 +337,20 @@ class SpreadService:
                 self._engine.stop_algo(algoid)
             rearm = self._algo_rearm.pop(algoid, None)
             traded = self._algo_traded.get(algoid, 0)
+            from faos_app.log import log
+
+            log(f"FAOS_WATCHDOG_TIMEOUT {algoid} 超时 {timeout}s 停止 traded={traded:g}")
             if rearm is not None and traded == 0 and self._rearm_fn is not None:
                 try:
                     sid, action, spread, lots, closing = rearm
-                    self._rearm_fn(sid, action, spread, lots, is_close_order=closing)
+                    n = self._rearm_counts.get((sid, action.value, spread), 0) + 1
+                    self._rearm_counts[(sid, action.value, spread)] = n
+                    self._rearm_fn(sid, action, spread, lots, is_close_order=closing,
+                                   timeout_rearm=n)
                     self._push.notice(
                         "warn", f"价差算法 {algoid} 追价超时（{timeout} 秒未成交），已停止并"
                         + ("原价重挂平仓触发单" if closing else "原价重挂触发单")
-                        + "——行情恢复后自动再触发（挂单未丢失）")
+                        + f"（第 {n} 次重挂）——行情恢复后自动再触发（挂单未丢失）")
                     continue
                 except Exception as e:
                     from faos_app.log import log

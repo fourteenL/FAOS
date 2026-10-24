@@ -418,7 +418,8 @@ class StrategyManager:
     def place_trigger(self, strategy_id: int, action: TriggerAction, spread: float,
                       lots: Optional[float] = None, companion_spread: Optional[float] = None,
                       replace_trigger_id: Optional[str] = None,
-                      is_close_order: bool = False) -> Trigger:
+                      is_close_order: bool = False,
+                      timeout_rearm: int = 0) -> Trigger:
         """挂触发单；被拒（重复/超总份/无持仓等）时写 FAOS_TRIGGER_REJECT 日志再抛出。
 
         2026-10-13 实测教训：用户平仓被拒但 faos.log 无痕迹，问题无法定位——
@@ -426,7 +427,7 @@ class StrategyManager:
         修改挂单价场景（净敞口按新旧差值计）。"""
         try:
             return self._place_trigger(strategy_id, action, spread, lots, companion_spread,
-                                       replace_trigger_id, is_close_order)
+                                       replace_trigger_id, is_close_order, timeout_rearm)
         except ValueError as e:
             from faos_app.log import log
 
@@ -439,7 +440,8 @@ class StrategyManager:
     def _place_trigger(self, strategy_id: int, action: TriggerAction, spread: float,
                        lots: Optional[float] = None, companion_spread: Optional[float] = None,
                        replace_trigger_id: Optional[str] = None,
-                       is_close_order: bool = False) -> Trigger:
+                       is_close_order: bool = False,
+                       timeout_rearm: int = 0) -> Trigger:
         s = self._require(strategy_id)
         if self._close_risk_locked:
             raise ValueError("临近收盘/休市（风控锁），时点前暂不接受新挂单，时点后自动恢复")
@@ -499,7 +501,8 @@ class StrategyManager:
         from faos_app.log import log
 
         log(f"FAOS_TRIGGER_PLACED #{s.id} {s.pair} {action.value}@{spread} lots={lots}"
-            f"{'（平仓通道）' if is_close_order else ''}")
+            f"{'（平仓通道）' if is_close_order else ''}"
+            + (f"（超时重挂 第{n}次）" if timeout_rearm else ""))
         t = Trigger(trigger_id=f"t{uuid4().hex[:8]}", action=action, spread=spread, lots=lots,
                     is_close=is_close_order)
         s.triggers.append(t)

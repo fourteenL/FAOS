@@ -78,12 +78,17 @@ def plan_close_split(s, actual_book: dict, leg_pairs: list, key: str, need: floa
     "long"，平空=open_long→"short"）；need: 每腿需平手数。
     返回 {vt_symbol: {"yd": n, "td": m}}；任一腿「账本∩实际」不足 need → None
     （整体回落账户级净仓转换，告警由对账兜底）。"""
+    # 两腿持仓方向相反（价差 B 腿 trading_multiplier=-1）：A 腿用 key、B 腿用
+    # 对向 key（2026-10-24 修「平仓吃共享腿他策略仓」——旧实现两腿同 key，
+    # B 腿永远查不到账本 → 拆分失败 → 回落账户级净仓转换平掉别人的仓）
+    opp = "short" if key == "long" else "long"
     out = {}
-    for leg, vt in leg_pairs:
+    for i, (leg, vt) in enumerate(leg_pairs):
+        k = key if i == 0 else opp
         entry = (s.leg_book or {}).get(leg) or {}
         act = actual_book.get(vt) or {}
-        yd = min(entry.get(f"{key}_yd", 0), act.get(f"{key}_yd", 0))
-        td = min(entry.get(f"{key}_td", 0), act.get(f"{key}_today", 0))
+        yd = min(entry.get(f"{k}_yd", 0), act.get(f"{k}_yd", 0))
+        td = min(entry.get(f"{k}_td", 0), act.get(f"{k}_today", 0))
         if yd + td < need - _EPS:
             return None
         yd_use = min(yd, need)
