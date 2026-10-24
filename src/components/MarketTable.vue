@@ -109,7 +109,8 @@ function onRow(row) {
 }
 
 function cancelCountOf(row) {
-  return store.cancelCount(row.pair, `${row.leg_a}.SHFE`);
+  // 后端权威计数（撤单回报驱动+去重+归属过滤）；前端自算版已删（双源不一致）
+  return row.cancel_count_a ?? 0;
 }
 
 // 排序：自定义（弹窗拖动列表调序）/ 合约升序 / 合约降序（2026-10-16 定稿）

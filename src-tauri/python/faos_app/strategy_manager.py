@@ -431,10 +431,11 @@ class StrategyManager:
         except ValueError as e:
             from faos_app.log import log
 
+            st = self._require(strategy_id)
             log(f"FAOS_TRIGGER_REJECT #{strategy_id} {action.value}@{spread} "
                 f"lots={lots if lots is not None else '默认'} {e} "
-                f"[held={self._require(strategy_id).held_units:+g} 总份={self._require(strategy_id).total_lots:g} "
-                f"挂单={[(t.action.value, t.spread) for t in self._require(strategy_id).triggers] or '无'}]")
+                f"[held={st.held_units:+g} 总份={st.total_lots:g} "
+                f"挂单={[(t.action.value, t.spread) for t in st.triggers] or '无'}]")
             raise
 
     def _place_trigger(self, strategy_id: int, action: TriggerAction, spread: float,

@@ -232,7 +232,8 @@ class SpreadService:
             volume=trigger.lots,
             payup=self._algo.payup,
             interval=self._algo.interval,
-            lock=self._algo.lock or not closing,
+            lock=not closing,  # 开仓锁仓/平仓净仓固定语义（algo.lock 已退役：
+            #                    该配置若为 true 会把平仓也变开仓，2026-10-24 移除）
             extra=extra,
         )
         if algoid:

@@ -12,7 +12,6 @@
 	"algo": {
 		"payup": 5,
 		"interval": 3,
-		"lock": false,
 		"timeout": 300
 	},
 	"products": [

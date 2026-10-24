@@ -37,13 +37,6 @@ class Pusher:
         """实时合成价差（填价参考显示）：{pair, short_open, long_open, live}。"""
         self._emit("spread", payload)
 
-    def position(self, data: dict) -> None:
-        self._emit("position", data)
-
-    def position_batch(self, items: list) -> None:
-        for d in items:
-            self._emit("position", d)
-
     def order(self, data: dict) -> None:
         self._emit("order", data)
 

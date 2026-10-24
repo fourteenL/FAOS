@@ -1,7 +1,6 @@
 """CTP 服务：vnpy MainEngine + CtpGateway 封装。
 
 事件（vnpy EventEngine 线程回调）→ 转换 → Pusher 推前端：
-- EVENT_POSITION 经 PositionCoalescer 节流合并（200ms 窗口）
 - EVENT_ORDER / EVENT_TRADE 即时透传
 - EVENT_LOG 关键标记 → 连接状态机（connected / ready / disconnected）
 
@@ -95,42 +94,13 @@ def trade_to_dict(t) -> dict:
     return d
 
 
-class PositionCoalescer:
-    """持仓推送节流：窗口内缓冲，flush 时同 (vt_symbol, direction) last-wins 合并。
-
-    生产端由 portal 定时任务按 interval 驱动 flush；测试可手动驱动。
-    """
-
-    def __init__(self, interval: float, sink: Callable[[list], None]):
-        self._interval = interval
-        self._sink = sink
-        self._pending: dict = {}
-        self._last_flush = 0.0
-        self._lock = Lock()  # vnpy 线程 push 与 portal 线程 flush 并发
-
-    def push(self, p, now: Optional[float] = None) -> None:
-        d = position_to_dict(p) if not isinstance(p, dict) else p
-        with self._lock:
-            self._pending[(d["vt_symbol"], d["direction"])] = d
-
-    def flush(self, now: Optional[float] = None) -> None:
-        with self._lock:
-            if self._pending:
-                self._sink(list(self._pending.values()))
-                self._pending = {}
-            if now is not None:
-                self._last_flush = now
-
-
 class CtpService:
     def __init__(self, push, engine_factory: Optional[Callable] = None,
-                 position_interval: float = 0.2):
+                 ):
         self._push = push
         self._engine_factory = engine_factory
-        self._position_interval = position_interval
         self.main_engine = None
         self.event_engine = None
-        self._coalescer = PositionCoalescer(position_interval, push.position_batch)
         self.state = "disconnected"
         self._position_timer_task = None
         self._portal = None
@@ -162,27 +132,14 @@ class CtpService:
 
         self.main_engine.add_gateway(CtpGateway)
 
-        from vnpy.trader.event import EVENT_LOG, EVENT_ORDER, EVENT_POSITION, EVENT_TICK, EVENT_TRADE
+        from vnpy.trader.event import EVENT_LOG, EVENT_ORDER, EVENT_TICK, EVENT_TRADE
 
-        self.event_engine.register(EVENT_POSITION, self._wrap(self._on_position))
         self.event_engine.register(EVENT_ORDER, self._wrap(self._on_order))
         self.event_engine.register(EVENT_TRADE, self._wrap(self._on_trade))
         self.event_engine.register(EVENT_LOG, self._wrap(self._on_log))
         self.event_engine.register(EVENT_TICK, self._wrap(self._on_tick_oi))
         # MainEngine.__init__ 已 start EventEngine，不再重复启动
-        self._start_flush_loop()
         self._start_login_watchdog()
-
-    def _start_flush_loop(self) -> None:
-        if self._portal is None:
-            return
-
-        async def loop():
-            while True:
-                await __import__("anyio").sleep(self._position_interval)
-                self._coalescer.flush(time.monotonic())
-
-        self._portal.start_task_soon(loop)
 
     def connect(self, settings: CtpSettings) -> None:
         """手动拨号入口（幂等）：SimNow 仅交易时段可登录。"""
@@ -285,9 +242,6 @@ class CtpService:
                 log(f"FAOS_EVENT_HANDLER_FAIL {getattr(fn, '__name__', fn)}: {e}")
 
         return handler
-
-    def _on_position(self, data) -> None:
-        self._coalescer.push(data, time.monotonic())
 
     def _on_tick_oi(self, tick) -> None:
         """tick 持仓量 → 主力判定数据（品种订阅时实测最大持仓=市场主力）。"""

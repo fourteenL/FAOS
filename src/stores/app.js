@@ -26,21 +26,18 @@ export function tickPrecision(tick) {
 export const useAppStore = defineStore("app", {
   state: () => ({
     strategies: [],
-    positions: {},   // vt_symbol -> { long: n, short: n }
-    orders: [],      // 腿部委托回报（T12 用）
-    trades: [],      // 腿部成交回报（T12 用）
-    algos: [],       // 价差算法状态（T12 用）
+    orders: [],      // 腿部委托回报（LegCard/OrderPanel 刷新用）
+    trades: [],      // 腿部成交回报
+    algos: [],       // 价差算法状态
     notices: [],
-    spreadQuotes: {},  // pair -> { short_open, long_open, live }（本地合成实时价差，填价参考）
-    accountPositions: {},  // vt_symbol -> { long_today,long_yd,short_today,short_yd }（柜台真实持仓，含双向）
+    spreadQuotes: {},  // pair -> { short_open, long_open, live, stale_a, stale_b }（本地合成，填价参考+停滞显示）
+    accountPositions: {},  // vt_symbol -> { long_today,long_yd,short_today,short_yd }（柜台真实，含双向；持仓 tooltip 用）
     ctpState: "disconnected",
     ctpStep: "",  // 连接进度步骤（后端关键日志映射）
     selectedId: null,
     products: [],
     productFilter: null,
     productTicks: {},
-    cancelledSet: {},  // vt_orderid 去重
-    cancelByPair: {},  // pair -> { vt_symbol: 已撤笔数 }
     loggedIn: false,
     bound: false,
   }),
@@ -98,29 +95,10 @@ export const useAppStore = defineStore("app", {
           if (p.state === "disconnected") this.ctpStep = "";
         }
       });
-      listenPy("position", (p) => {
-        const sym = p.vt_symbol;
-        const cur = this.positions[sym] || { long: 0, short: 0 };
-        this.positions[sym] = {
-          long: p.direction === "多" ? p.volume : p.direction === "long" ? p.volume : cur.long,
-          short: p.direction === "空" ? p.volume : p.direction === "short" ? p.volume : cur.short,
-        };
-      });
       listenPy("order", (p) => {
         const i = this.orders.findIndex((o) => o.vt_orderid === p.vt_orderid);
         if (i >= 0) this.orders.splice(i, 1, p);
         else this.orders.unshift(p);
-        // A/B 腿已撤销委托累计计数（同一委托多次回报按 vt_orderid 去重）
-        if (p.status_zh === "已撤销" || p.status === "已撤销" || p.status === "CANCELLED") {
-          if (!this.cancelledSet[p.vt_orderid]) {
-            this.cancelledSet[p.vt_orderid] = true;
-            const pair = p.pair || this.pairOfSymbol(p.vt_symbol);
-            if (pair) {
-              const bySym = (this.cancelByPair[pair] = this.cancelByPair[pair] || {});
-              bySym[p.vt_symbol] = (bySym[p.vt_symbol] || 0) + 1;
-            }
-          }
-        }
       });
       listenPy("trade", (p) => {
         this.trades.unshift(p);
@@ -139,14 +117,6 @@ export const useAppStore = defineStore("app", {
     },
     select(id) {
       this.selectedId = id;
-    },
-    pairOfSymbol(vtSymbol) {
-      const leg = String(vtSymbol || "").split(".")[0];
-      const s = this.strategies.find((x) => x.leg_a === leg || x.leg_b === leg);
-      return s ? s.pair : null;
-    },
-    cancelCount(pair, vtSymbol) {
-      return (this.cancelByPair[pair] || {})[vtSymbol] || 0;
     },
     // -- 命令包装 ---------------------------------------------------------
     async createStrategy(body) {

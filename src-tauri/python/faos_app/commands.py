@@ -207,7 +207,7 @@ async def save_settings(body: Settings, state: Annotated[AppState, State()]) -> 
     persist_settings(merged, settings_path())
     state.settings = merged
     state.pusher.notice(
-        "info", "设置已保存。MQTT/CTP 连接参数将在重启应用后生效"
+        "info", "设置已保存。CTP 连接参数将在重启应用后生效"
     )
     return Ok()
 
