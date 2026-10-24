@@ -147,16 +147,18 @@ async function save() {
 <style scoped>
 .fpanel { position: fixed; inset: 0; z-index: 1000; background: rgba(0,0,0,.45);
   display: flex; align-items: flex-start; justify-content: center; padding-top: 56px; }
-.fpanel-card { width: 420px; max-height: 70vh; overflow-y: auto;
-  background: #fff; border-radius: 8px; box-shadow: 0 6px 24px rgba(0,0,0,.18); padding: 12px 14px; }
-.fpanel-head { display: flex; justify-content: space-between; font-weight: 600;
-  font-size: 14px; margin-bottom: 8px; }
+.fpanel-card { width: 440px; max-height: 70vh; overflow: hidden;
+    background: #fff; border-radius: 8px; box-shadow: 0 6px 24px rgba(0,0,0,.18); padding: 12px 14px;
+  display: flex; flex-direction: column; }
+.fpanel-head { display: flex; justify-content: space-between; font-weight: 600; font-size: 14px;
+  margin-bottom: 8px; flex-shrink: 0; padding-bottom: 8px; border-bottom: 1px solid #f0f0f0; }
 .pw-eye { font-size: 12px; }
 .close { font-size: 18px; color: #999; line-height: 1; }
-.modal-body { padding-right: 2px; }
+.modal-body { padding-right: 2px; overflow-y: auto; flex: 1 1 auto; min-height: 0; }
 .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0 12px; }
 .span2 { grid-column: span 2; }
-.fbtns { display: flex; gap: 8px; justify-content: flex-end; margin-top: 10px; }
+.fbtns { display: flex; gap: 8px; justify-content: flex-end;
+  flex-shrink: 0; padding-top: 10px; border-top: 1px solid #f0f0f0; }
 .sess-row { display: flex; gap: 6px; align-items: center; margin-bottom: 4px; }
 .sess-row span { color: #999; }
 </style>

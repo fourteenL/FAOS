@@ -88,6 +88,7 @@ function canSubscribe(row) {
         <span>订阅管理</span>
         <a class="close" @click="visible = false">×</a>
       </div>
+      <div class="fpanel-body">
       <a-tabs v-model:active-key="activeTab" size="small">
         <a-tab-pane key="pair" tab="自行创建合约对">
           <a-form layout="inline">
@@ -144,6 +145,7 @@ function canSubscribe(row) {
           </template>
         </template>
       </a-table>
+      </div>
     </div>
   </div>
 </template>
@@ -151,11 +153,13 @@ function canSubscribe(row) {
 <style scoped>
 .fpanel { position: fixed; inset: 0; z-index: 1000; background: rgba(0,0,0,.45);
   display: flex; align-items: flex-start; justify-content: center; padding-top: 56px; }
-.fpanel-card { width: 440px; max-height: 70vh; overflow-y: auto;
-  background: #fff; border-radius: 8px; box-shadow: 0 6px 24px rgba(0,0,0,.18); padding: 12px 14px; }
-.fpanel-head { display: flex; justify-content: space-between; font-weight: 600;
-  font-size: 14px; margin-bottom: 8px; }
+.fpanel-card { width: 440px; max-height: 70vh; overflow: hidden;
+    background: #fff; border-radius: 8px; box-shadow: 0 6px 24px rgba(0,0,0,.18); padding: 12px 14px;
+  display: flex; flex-direction: column; }
+.fpanel-head { display: flex; justify-content: space-between; font-weight: 600; font-size: 14px;
+  margin-bottom: 8px; flex-shrink: 0; padding-bottom: 8px; border-bottom: 1px solid #f0f0f0; }
 .close { font-size: 18px; color: #999; line-height: 1; }
+.fpanel-body { overflow-y: auto; flex: 1 1 auto; min-height: 0; }
 .hint { color: #999; font-size: 12px; }
 .div { margin: 12px 0 6px; font-size: 12px; }
 </style>

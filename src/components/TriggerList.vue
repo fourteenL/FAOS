@@ -48,8 +48,9 @@ defineExpose({ open });
         <span>活动触发单（{{ rows.length }}）</span>
         <a class="close" @click="visible = false">×</a>
       </div>
-      <div v-if="!rows.length" class="muted">无活动触发单</div>
-      <table v-else class="tlist">
+      <div class="fpanel-body">
+        <div v-if="!rows.length" class="muted">无活动触发单</div>
+        <table v-else class="tlist">
         <thead>
           <tr><th>策略号</th><th>合约对</th><th>方向</th><th>触发价</th><th>份数</th><th>操作</th></tr>
         </thead>
@@ -63,8 +64,9 @@ defineExpose({ open });
             <td><a style="color: #cf1322" @click="cancel(r)">取消</a></td>
           </tr>
         </tbody>
-      </table>
-      <p class="hint">触发单为本地监控，等差价条件满足后自动拆腿下单（柜台在触发前不可见）。</p>
+        </table>
+        <p class="hint">触发单为本地监控，等差价条件满足后自动拆腿下单（柜台在触发前不可见）。</p>
+      </div>
     </div>
   </div>
 </template>
@@ -72,10 +74,13 @@ defineExpose({ open });
 <style scoped>
 .fpanel { position: fixed; inset: 0; z-index: 1000; background: rgba(0,0,0,.45);
   display: flex; align-items: flex-start; justify-content: center; padding-top: 56px; }
-.fpanel-card { width: 520px; max-height: 70vh; overflow-y: auto;
-  background: #fff; border-radius: 8px; box-shadow: 0 6px 24px rgba(0,0,0,.18); padding: 12px 14px; }
-.fpanel-head { display: flex; justify-content: space-between; font-weight: 600; font-size: 14px; margin-bottom: 8px; }
+.fpanel-card { width: 440px; max-height: 70vh; overflow: hidden;
+    background: #fff; border-radius: 8px; box-shadow: 0 6px 24px rgba(0,0,0,.18); padding: 12px 14px;
+  display: flex; flex-direction: column; }
+.fpanel-head { display: flex; justify-content: space-between; font-weight: 600; font-size: 14px;
+  margin-bottom: 8px; flex-shrink: 0; padding-bottom: 8px; border-bottom: 1px solid #f0f0f0; }
 .close { font-size: 18px; color: #999; line-height: 1; }
+.fpanel-body { overflow-y: auto; flex: 1 1 auto; min-height: 0; }
 .muted { color: #999; font-size: 12px; }
 .hint { color: #bbb; font-size: 12px; margin: 8px 0 0; }
 .tlist { width: 100%; font-size: 12px; border-collapse: collapse; }
