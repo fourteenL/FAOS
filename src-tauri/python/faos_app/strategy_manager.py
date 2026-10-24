@@ -502,9 +502,9 @@ class StrategyManager:
 
         log(f"FAOS_TRIGGER_PLACED #{s.id} {s.pair} {action.value}@{spread} lots={lots}"
             f"{'（平仓通道）' if is_close_order else ''}"
-            + (f"（超时重挂 第{n}次）" if timeout_rearm else ""))
+            + (f"（超时重挂 第{timeout_rearm}次）" if timeout_rearm else ""))
         t = Trigger(trigger_id=f"t{uuid4().hex[:8]}", action=action, spread=spread, lots=lots,
-                    is_close=is_close_order)
+                    is_close=is_close_order, rearm_count=timeout_rearm)
         s.triggers.append(t)
         if s.status in (StrategyStatus.active, StrategyStatus.unsubscribed, StrategyStatus.pending):
             s.status = StrategyStatus.armed

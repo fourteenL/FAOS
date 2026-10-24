@@ -66,6 +66,14 @@ function fmt(v) {
   return v == null ? "--" : Number(v).toFixed(2);
 }
 
+// 持仓悬停（2026-10-24）：该腿柜台实际双向今昨持仓（10s 刷新），与无限易快速核对
+function posTip(row, leg) {
+  const sym = leg === "a" ? row.leg_a : row.leg_b;
+  const ap = store.accountPositions[`${sym}.SHFE`];
+  if (!ap) return `${sym}：柜台数据未加载（点顶栏「持仓」可查看全部）`;
+  return `${sym} 柜台实际：多 今${ap.long_today}/昨${ap.long_yd} · 空 今${ap.short_today}/昨${ap.short_yd}`;
+}
+
 // 四向差价列 = 策略保存的人工价（行情推送退役，差价手动填入）
 function manualOf(row, key) {
   return row[key] == null ? null : row[key];
@@ -173,16 +181,16 @@ const rows = computed(() => {
         <span>{{ fmt(manualOf(record, "manual_close_long")) }}</span>
       </template>
       <template v-else-if="column.key === 'a_short'">
-        <span :class="posCell(record, 'a', 'short').cls">{{ posCell(record, 'a', 'short').text }}</span>
+        <span :class="posCell(record, 'a', 'short').cls" :title="posTip(record, 'a')">{{ posCell(record, 'a', 'short').text }}</span>
       </template>
       <template v-else-if="column.key === 'b_short'">
-        <span :class="posCell(record, 'b', 'short').cls">{{ posCell(record, 'b', 'short').text }}</span>
+        <span :class="posCell(record, 'b', 'short').cls" :title="posTip(record, 'b')">{{ posCell(record, 'b', 'short').text }}</span>
       </template>
       <template v-else-if="column.key === 'a_long'">
-        <span :class="posCell(record, 'a', 'long').cls">{{ posCell(record, 'a', 'long').text }}</span>
+        <span :class="posCell(record, 'a', 'long').cls" :title="posTip(record, 'a')">{{ posCell(record, 'a', 'long').text }}</span>
       </template>
       <template v-else-if="column.key === 'b_long'">
-        <span :class="posCell(record, 'b', 'long').cls">{{ posCell(record, 'b', 'long').text }}</span>
+        <span :class="posCell(record, 'b', 'long').cls" :title="posTip(record, 'b')">{{ posCell(record, 'b', 'long').text }}</span>
       </template>
       <template v-else-if="column.key === 'status'">
         <span :class="directionOf(record).cls">{{ directionOf(record).label }}</span>

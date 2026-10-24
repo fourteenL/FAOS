@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, reactive, ref, watch } from "vue";
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from "vue";
 import { message } from "ant-design-vue";
 import { useAppStore, tickPrecision } from "../stores/app.js";
 import LegCard from "./LegCard.vue";
@@ -100,6 +100,30 @@ const openTriggerOf = (action) => s.value?.triggers.find((t) => t.action === act
 
 const OPEN_INPUT = { open_short: "open_short", open_long: "open_long" };
 
+// 平仓等待可视化（2026-10-24）：本策略平仓单挂出后的状态文案——
+// 等待成交时长（created_at 起算）+ 超时自动重挂次数（rearm_count）
+function closeWaitText(side) {
+  const st = s.value;
+  if (!st) return "";
+  const action = side === "short" ? "open_long" : "open_short";
+  const t = (st.triggers || []).find((x) => x.action === action && x.is_close);
+  const running = st.active_algos?.length && st.executing_action === action;
+  if (!t && !running) return "";
+  const parts = [];
+  if (t) {
+    const sec = Math.max(0, Math.floor((Date.now() - new Date(t.created_at).getTime()) / 1000));
+    parts.push(sec >= 60 ? `已等 ${Math.floor(sec / 60)} 分` : `已等 ${sec} 秒`);
+    if (t.rearm_count > 0) parts.push(`已重挂 ${t.rearm_count} 次`);
+  }
+  if (running) parts.push("执行中");
+  return `（${parts.join(" · ")}）`;
+}
+const clockTick = ref(0);  // 每 10s 触发重算等待时长
+let closeTimer = null;
+onMounted(() => { closeTimer = setInterval(() => { clockTick.value++; }, 10000); });
+onUnmounted(() => clearInterval(closeTimer));
+function closeWaitTextTick(side) { clockTick.value; return closeWaitText(side); }
+
 // 平仓唯一入口=反向区「平仓」按钮（is_close 通道）；反方向挂单=正常开仓锁仓
 // （2026-10-19 夜盘实测后终稿：上期所双向持仓=设计效果，反向置灰一律移除）
 async function doPlace(action, spread, replaceTriggerId) {
@@ -182,12 +206,24 @@ async function closeNow(side) {
     message.warning("无对应持仓可平");
     return;
   }
-  const spread = side === "short" ? form.close_short : form.close_long;
+  let spread = side === "short" ? form.close_short : form.close_long;
   if (spread == null) {
-    message.warning(side === "short"
-      ? "请填写空平差价（当前多开价附近可尽快触发）"
-      : "请填写多平差价（当前空开价附近可尽快触发）");
-    return;
+    // 默认价（2026-10-24 定稿）：空框自动预填对侧实时价——平空挂 open_long
+    // （触发条件 多开≤填价），预填=当前多开；平多挂 open_short（空开≥填价），
+    // 预填=当前空开——等于当前价即立即触发，免去手填离市价过远等不到的坑
+    const live = cur.value?.live
+      ? (side === "short" ? cur.value.long_open : cur.value.short_open)
+      : null;
+    if (live == null) {
+      message.warning(side === "short"
+        ? "请填写空平差价（或等行情到达后自动预填当前多开价）"
+        : "请填写多平差价（或等行情到达后自动预填当前空开价）");
+      return;
+    }
+    spread = Number(live);
+    if (side === "short") form.close_short = spread;
+    else form.close_long = spread;
+    message.info(`已按当前${side === "short" ? "多开" : "空开"}价 ${spread} 自动填价（立即触发取向）`);
   }
   const action = side === "short" ? "open_long" : "open_short";  // 平空=买回=多开方向
   const old = openTriggerOf(action);  // 旧的平仓尝试挂单自动替换
@@ -248,7 +284,8 @@ const ACTION_ZH = { open_short: "做空开", open_long: "做多开", close_short
           <a-input-number v-model:value="form.close_short" :step="step" :precision="precision" size="small" style="width: 90px" @change="markDirty('close_short')" />
           <span class="cur" :class="{ off: !cur?.live }" title="实时空开价差（做空触发条件：空开 ≥ 填价；填价 ≤ 当前值即立即触发）">{{ fmtLive(cur?.short_open) }}</span>
           <span v-if="staleText" class="stale" title="任一腿行情停滞超阈值即不合成不触发（阈值可在设置中调整）；「无行情」=该腿从未收到 tick（远月/夜盘常无行情）">{{ staleText }}</span>
-          <a-button size="small" danger :disabled="!(s.held_short_units > 0)" title="按空平差价挂买回单，份数=单份（封顶空头持仓）；多次点击逐份平" @click="closeNow('short')">平仓</a-button>
+          <a-button size="small" danger :disabled="!(s.held_short_units > 0)" title="按空平差价挂买回单（空框自动按当前多开价填价）；份数=单份（封顶空头持仓）" @click="closeNow('short')">平仓</a-button>
+          <span v-if="closeWaitTextTick('short')" class="wait">{{ closeWaitTextTick('short') }}</span>
           <a-button size="small" :disabled="!hasCloseActivity('short')" title="撤销本方向平仓挂单并停止执行中的平仓算法" @click="stopCurrent('short')">停止平仓</a-button>
         </div>
       </div>
@@ -266,7 +303,8 @@ const ACTION_ZH = { open_short: "做空开", open_long: "做多开", close_short
           <a-input-number v-model:value="form.close_long" :step="step" :precision="precision" size="small" style="width: 90px" @change="markDirty('close_long')" />
           <span class="cur" :class="{ off: !cur?.live }" title="实时多开价差（做多触发条件：多开 ≤ 填价；填价 ≥ 当前值即立即触发）">{{ fmtLive(cur?.long_open) }}</span>
           <span v-if="staleText" class="stale" title="任一腿行情停滞超阈值即不合成不触发（阈值可在设置中调整）；「无行情」=该腿从未收到 tick（远月/夜盘常无行情）">{{ staleText }}</span>
-          <a-button size="small" danger :disabled="!(s.held_long_units > 0)" title="按多平差价挂卖出单，份数=单份（封顶多头持仓）；多次点击逐份平" @click="closeNow('long')">平仓</a-button>
+          <a-button size="small" danger :disabled="!(s.held_long_units > 0)" title="按多平差价挂卖出单（空框自动按当前空开价填价）；份数=单份（封顶多头持仓）" @click="closeNow('long')">平仓</a-button>
+          <span v-if="closeWaitTextTick('long')" class="wait">{{ closeWaitTextTick('long') }}</span>
           <a-button size="small" :disabled="!hasCloseActivity('long')" title="撤销本方向平仓挂单并停止执行中的平仓算法" @click="stopCurrent('long')">停止平仓</a-button>
         </div>
       </div>
@@ -304,6 +342,7 @@ const ACTION_ZH = { open_short: "做空开", open_long: "做多开", close_short
 .cur { font-size: 12px; color: #389e0d; white-space: nowrap; }
 .cur.off { color: #999; }
 .stale { font-size: 11px; color: #d46b08; white-space: nowrap; }
+.wait { font-size: 11px; color: #1677ff; white-space: nowrap; }
 .line label { width: 62px; font-size: 12px; color: #666; }
 .triggers { margin-top: 10px; }
 .sec-title { font-size: 12px; color: #999; margin-bottom: 4px; }

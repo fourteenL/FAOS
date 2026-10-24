@@ -162,7 +162,9 @@ async function removeStrategy() {
         <a-popconfirm title="删除该策略并退订行情？" @confirm="removeStrategy">
           <a-button danger size="small">行情删除</a-button>
         </a-popconfirm>
-        <a-button size="small" @click="stopAll">停止</a-button>
+        <a-popconfirm title="停止该策略？（撤全部触发单+停算法，持仓保留）" @confirm="stopAll">
+          <a-button size="small" danger>停止</a-button>
+        </a-popconfirm>
       </div>
 
       <a-divider orientation="left" plain class="div">交易参数（A/B 腿分别设置）</a-divider>

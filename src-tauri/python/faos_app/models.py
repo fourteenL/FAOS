@@ -39,6 +39,7 @@ class Trigger(BaseModel):
     lots: float
     created_at: str = Field(default_factory=lambda: datetime.now().isoformat(timespec="seconds"))
     is_close: bool = False  # 平仓按钮通道（净仓对冲+平仓文案）；普通挂单一律锁仓正常开仓
+    rearm_count: int = 0  # 超时自动重挂次数（看门狗重挂时累加；前端显示「已重挂 N 次」）
 
 
 class Strategy(BaseModel):

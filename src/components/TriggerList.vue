@@ -14,10 +14,15 @@ const rows = computed(() => {
       // 平仓标注按单据 is_close 通道（2026-10-21：不再按持仓方向猜——反向普通挂单
       // 是正常开仓锁仓，误标「平仓」会让人以为点了平仓）
       const closing = !!t.is_close;
+      // 等待可视化（2026-10-24）：挂出至今的等待时长 + 超时自动重挂次数
+      const sec = Math.max(0, Math.floor((Date.now() - new Date(t.created_at).getTime()) / 1000));
+      const wait = sec >= 60 ? `${Math.floor(sec / 60)} 分 ${sec % 60} 秒` : `${sec} 秒`;
+      const rearm = t.rearm_count > 0 ? ` · 已重挂 ${t.rearm_count} 次` : "";
       out.push({
         id: s.id, pair: s.pair, action: t.action, spread: t.spread,
         lots: t.lots, trigger_id: t.trigger_id,
         label: (ACTION_ZH[t.action] || t.action) + (closing ? "（平仓）" : ""),
+        wait: `等 ${wait}${rearm}`,
       });
     }
   }
@@ -52,7 +57,7 @@ defineExpose({ open });
         <div v-if="!rows.length" class="muted">无活动触发单</div>
         <table v-else class="tlist">
         <thead>
-          <tr><th>策略号</th><th>合约对</th><th>方向</th><th>触发价</th><th>份数</th><th>操作</th></tr>
+          <tr><th>策略号</th><th>合约对</th><th>方向</th><th>触发价</th><th>份数</th><th>等待</th><th>操作</th></tr>
         </thead>
         <tbody>
           <tr v-for="r in rows" :key="r.trigger_id">
@@ -61,6 +66,7 @@ defineExpose({ open });
             <td>{{ r.label }}</td>
             <td class="mono">{{ r.spread }}</td>
             <td>{{ r.lots }}</td>
+            <td class="muted">{{ r.wait }}</td>
             <td><a style="color: #cf1322" @click="cancel(r)">取消</a></td>
           </tr>
         </tbody>
