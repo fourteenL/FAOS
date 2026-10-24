@@ -139,7 +139,7 @@ const rows = computed(() => {
     <button :class="{ tg: true, on: sortMode === 'custom' }" @click="sortMode = 'custom'">自定义</button>
     <button :class="{ tg: true, on: sortMode === 'asc' }" @click="sortMode = 'asc'">合约↑</button>
     <button :class="{ tg: true, on: sortMode === 'desc' }" @click="sortMode = 'desc'">合约↓</button>
-    <a-button size="small" @click="openSortModal">调序</a-button>
+    <button :class="{ tg: true, on: false }" title="拖动调整自定义顺序" @click="openSortModal">调序</button>
   </div>
   <a-empty v-if="!store.visibleStrategies.length" description="暂无订阅的策略，请在「订阅管理」中创建并订阅" />
   <a-table
