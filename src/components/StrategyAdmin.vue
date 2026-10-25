@@ -1,7 +1,7 @@
 <script setup>
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from "vue";
 import { message } from "ant-design-vue";
-import { useAppStore } from "../stores/app.js";
+import { STATUS_ZH, useAppStore } from "../stores/app.js";
 import { marketClock } from "../utils/market_open.js";
 
 const store = useAppStore();
@@ -165,9 +165,10 @@ async function removeStrategy() {
         <a-popconfirm title="停止该策略？（撤全部触发单+停算法，持仓保留）" @confirm="stopAll">
           <a-button size="small" danger>停止</a-button>
         </a-popconfirm>
+        <span class="status">{{ STATUS_ZH[s.status] || s.status }}</span>
       </div>
 
-      <a-divider orientation="left" plain class="div">交易参数（A/B 腿分别设置）</a-divider>
+      <a-divider orientation="left" plain class="div">交易参数与份数</a-divider>
       <div class="grid">
         <div class="field">
           <span>A腿 报单类型</span>
@@ -186,12 +187,19 @@ async function removeStrategy() {
           <a-input-number v-model:value="form.slip_b" :min="0" size="small" style="width: 80px" />
         </div>
         <div class="field">
-          <span>A腿撤单上限（超限拒下单）</span>
+          <span>A腿撤单上限</span>
           <a-input-number v-model:value="risk.max_cancels_a" :min="1" :max="2000" size="small" style="width: 90px" />
+        </div>
+        <div class="field">
+          <span>单份（每次触发手数）</span>
+          <a-input-number v-model:value="lots.single" :min="1" size="small" style="width: 90px" />
+        </div>
+        <div class="field">
+          <span>总份（累计上限）</span>
+          <a-input-number v-model:value="lots.total" :min="1" size="small" style="width: 90px" />
         </div>
         <a-button size="small" type="primary" @click="saveConfig">保存参数</a-button>
       </div>
-      <p class="hint">A 腿默认挂价排队（滑点 0）；B 腿默认对手价 + 100 跳滑点对冲。市价以「对手价 + 滑点」限价实现。风控：A 腿累计撤单 {{ s.cancel_count_a }} / 上限 {{ risk.max_cancels_a }}（上限最大 2000，不填默认 2000），触限自动停止策略并撤全部挂单。</p>
 
       <a-divider orientation="left" plain class="div">A/B 腿持仓（今 / 昨）——改小目标数点「平到目标」</a-divider>
       <div class="grid">
@@ -222,19 +230,6 @@ async function removeStrategy() {
       </div>
       <p class="hint">目标数预填当前持仓；改小多少平多少（对手价立即成交取向，今仓平今/昨仓平昨），只平不开。此为单腿手动管理，不经价差算法；平仓后账户与策略持仓差异会由登录对账提醒。</p>
 
-      <a-divider orientation="left" plain class="div">下单份数</a-divider>
-      <div class="grid">
-        <div class="field">
-          <span>单份（每次触发手数）</span>
-          <a-input-number v-model:value="lots.single" :min="1" size="small" style="width: 90px" />
-        </div>
-        <div class="field">
-          <span>总份（累计上限）</span>
-          <a-input-number v-model:value="lots.total" :min="1" size="small" style="width: 90px" />
-        </div>
-        <a-button size="small" type="primary" @click="saveLots">保存份数</a-button>
-      </div>
-      <p class="hint">{{ holdTxt(s) }}，上限校验：做多/做空各自限总份（持仓+在途 ≤ 总份，双向互不占用；平仓不占额度）。</p>
     </template>
     <div v-else class="placeholder">点击上方表格选择一个策略后在此管理</div>
   </div>
@@ -248,7 +243,8 @@ async function removeStrategy() {
 .mkt-closed { color: #cf1322; }
 .pair { font-family: monospace; }
 .muted { color: #999; font-size: 12px; }
-.row2 { display: flex; gap: 8px; margin: 10px 0 4px; }
+.row2 { display: flex; gap: 8px; align-items: center; margin: 10px 0 4px; }
+.status { color: #666; font-size: 12px; }
 .div { margin: 10px 0 6px; font-size: 12px; }
 .grid { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; }
 .field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: #666; }
