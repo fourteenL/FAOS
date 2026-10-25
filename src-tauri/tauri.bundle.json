@@ -1,7 +1,7 @@
 ﻿{
     "$schema":  "../node_modules/@tauri-apps/cli/config.schema.json",
     "productName":  "FAOS",
-    "version":  "0.1.0-beta.22",
+    "version":  "0.1.0-beta.23",
     "identifier":  "com.faos.app",
     "build":  {
                   "frontendDist":  "../dist",
@@ -37,7 +37,9 @@
                    "resources":  {
                                      "pyembed/python":  "./",
                                      "dist-settings/settings.dist.json":  "config/settings.local.json",
-                                     "../config/contract_seed.json":  "config/contract_seed.json"
+                                     "../config/contract_seed.json":  "config/contract_seed.json",
+                                     "../config/market_sessions.json":  "config/market_sessions.json",
+                                     "../config/ctp_environments.json":  "config/ctp_environments.json"
                                  },
                    "windows":  {
                                    "nsis":  {
