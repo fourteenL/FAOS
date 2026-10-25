@@ -68,7 +68,7 @@ npx vitest run
 
 | 文件 | 说明 |
 |---|---|
-| `settings.local.json` | 本地凭据与参数（git 忽略；结构见 `settings.example.json`；三层合并：内置默认 → 本地 → %APPDATA% 运行时覆盖） |
+| `settings.local.json` | 本地凭据与参数（不入库；结构见 `settings.example.json`；三层合并：内置默认 → 本地 → %APPDATA% 运行时覆盖） |
 | `market_sessions.json` | 交易时段表（日盘三节+夜盘有色 01:00/贵金属 02:30，可手工编辑，驱动收盘风控；设置抽屉可改） |
 | `ctp_environments.json` | 柜台环境表（SimNow 四前置，登录页可增删；文件 > 内置默认兜底） |
 | `contract_seed.json` | 合约种子（CTP 就绪自动刷新，离线兜底） |
@@ -89,8 +89,6 @@ powershell -ExecutionPolicy Bypass -File scripts/build_portable.ps1
 ## 诊断
 
 日志在 `%APPDATA%\faos\logs\`（保留期可配），启动首行带版本号。关键标记：`FAOS_TRIGGER_PLACED/FIRED/REJECT`（带持仓上下文）、`FAOS_ALGO_DONE`、`FAOS_LEG_BOOK`（成交入账）、`FAOS_CLOSE_RISK / FAOS_CLOSE_SWEEP`（收盘风控两阶段）、`FAOS_WATCHDOG_TIMEOUT`（追价超时+重挂次数）、`FAOS_CANCEL_BENIGN`（撤单竞态）、`FAOS_LEDGER_CLAMPED`（启动账本校正）、`FAOS_STALE_ORDERS_CLEANED`（会话清理）、`FAOS_OP`（操作审计）。
-
-> `docs/`、`api.md`、`progress.md` 与各测试目录为本地文件，不入库（见 .gitignore）；测试在本机运行。
 
 ## 已知限制
 
