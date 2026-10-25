@@ -20,59 +20,56 @@ const environments = ref([]);
 const envOptions = computed(() => environments.value.map((e) => ({ value: e.name, label: e.name })));
 const currentEnv = computed(() => environments.value.find((e) => e.name === form.counter));
 
-// 环境管理弹窗（2026-10-24 改版）：打开即见列表，编辑/添加共用表单，保存按钮固定底部
+// 环境管理弹窗（2026-10-25 定稿）：行内直接编辑——无边框输入框就地改，
+// 行尾「-」删除、列表尾「+」添加，底部「保存」统一提交
 const envMgrOpen = ref(false);
-const envForm = reactive({ name: "", mode: "实盘", td: "", md: "" });
-const editingName = ref("");  // 非空=正在编辑该原名的环境（名称可改，保存时先删旧再存新）
+const envRows = ref([]);  // [{orig: 原名|null新增, name, mode, td, md}]
 
 async function openEnvMgr() {
   envMgrOpen.value = true;
-  resetEnvForm();
+  envRows.value = environments.value.map((e) => ({ ...e, orig: e.name }));
 }
 
-function resetEnvForm() {
-  editingName.value = "";
-  envForm.name = "";
-  envForm.mode = "实盘";
-  envForm.td = "";
-  envForm.md = "";
+function addEnvRow() {
+  envRows.value.push({ orig: null, name: "", mode: "实盘", td: "", md: "" });
 }
 
-function editEnv(e) {
-  editingName.value = e.name;
-  envForm.name = e.name;
-  envForm.mode = e.mode;
-  envForm.td = e.td;
-  envForm.md = e.md;
-}
-
-async function saveEnv() {
-  const name = envForm.name.trim();
-  if (!name) {
-    message.warning("环境名称不能为空");
-    return;
-  }
+async function removeEnvRow(idx) {
+  const row = envRows.value[idx];
   try {
-    if (editingName.value && editingName.value !== name) {
-      await call("remove_environment", { name: editingName.value });  // 改名：先删旧
+    if (row.orig) {
+      await call("remove_environment", { name: row.orig });
     }
-    const r = await call("add_environment", { ...envForm, name });
-    environments.value = r.environments;
-    form.counter = name;
-    message.success("环境已保存");
-    resetEnvForm();
+    envRows.value.splice(idx, 1);
+    const st = await call("get_login_state");  // 拉最新列表
+    environments.value = st.environments || environments.value;
+    if (form.counter === row.orig) form.counter = environments.value[0]?.name || "";
+    message.success("环境已删除");
   } catch (e) {
     message.error(String(e));
   }
 }
 
-async function removeEnv(name) {
+async function saveEnvRows() {
+  const rows = envRows.value.filter((r) => r.name.trim());
+  if (envRows.value.some((r) => !r.name.trim() && (r.td || r.md))) {
+    message.warning("有环境未填名称，该行已跳过");
+  }
+  if (!rows.length) {
+    message.warning("至少保留一个柜台环境");
+    return;
+  }
   try {
-    const r = await call("remove_environment", { name });
-    environments.value = r.environments;
-    if (form.counter === name) form.counter = environments.value[0]?.name || "";
-    if (editingName.value === name) resetEnvForm();
-    message.success("环境已删除");
+    for (const r of rows) {
+      if (r.orig && r.orig !== r.name.trim()) {
+        await call("remove_environment", { name: r.orig });  // 改名：先删旧
+      }
+      const r2 = await call("add_environment", { name: r.name.trim(), mode: r.mode, td: r.td.trim(), md: r.md.trim() });
+      environments.value = r2.environments;
+    }
+    form.counter = rows[rows.length - 1].name.trim();
+    message.success("环境已保存");
+    envMgrOpen.value = false;
   } catch (e) {
     message.error(String(e));
   }
@@ -164,36 +161,31 @@ async function doLogin() {
             <a class="close" @click="envMgrOpen = false">×</a>
           </div>
           <div class="env-body">
-            <div class="env-list">
-              <div v-for="e in environments" :key="e.name" class="env-row"
-                   :class="{ editing: editingName === e.name }">
-                <div class="env-info-cell">
-                  <span class="env-name mono">{{ e.name }}</span>
-                  <span class="env-detail">{{ e.mode }} · {{ e.td }}</span>
-                </div>
-                <span class="env-ops">
-                  <a @click="editEnv(e)">编辑</a>
-                  <a-popconfirm :title="`删除环境 ${e.name}？`" @confirm="removeEnv(e.name)">
-                    <a style="color: #cf1322">删除</a>
-                  </a-popconfirm>
-                </span>
+            <div v-for="(r, i) in envRows" :key="r.orig || `new-${i}`" class="env-row">
+              <div class="env-line1">
+                <a-input v-model:value="r.name" :bordered="false" size="small"
+                  placeholder="环境名称" class="cell-name" />
+                <a-select v-model:value="r.mode" :bordered="false" size="small"
+                  :options="[{ value: '实盘', label: '实盘' }, { value: '测试', label: '测试' }]"
+                  class="cell-mode" />
+                <a-popconfirm :title="`删除环境 ${r.name || '（未命名）'}？`" @confirm="removeEnvRow(i)">
+                  <a-button size="small" shape="circle" class="op-btn del" title="删除该环境">−</a-button>
+                </a-popconfirm>
+              </div>
+              <div class="env-line2">
+                <a-input v-model:value="r.td" :bordered="false" size="small"
+                  placeholder="交易前置 tcp://host:port" class="cell-url" />
+                <a-input v-model:value="r.md" :bordered="false" size="small"
+                  placeholder="行情前置 tcp://host:port" class="cell-url" />
               </div>
             </div>
-            <div class="env-form-title">{{ editingName ? `编辑：${editingName}` : "添加环境" }}</div>
-            <a-form layout="vertical" class="env-form">
-              <a-form-item label="环境名称"><a-input v-model:value="envForm.name" placeholder="如 华泰实盘 / SimNow 第一组" /></a-form-item>
-              <a-form-item label="柜台模式">
-                <a-select v-model:value="envForm.mode" :options="[{ value: '实盘', label: '实盘（生产证书）' }, { value: '测试', label: '测试' }]" />
-              </a-form-item>
-              <a-form-item label="交易前置"><a-input v-model:value="envForm.td" placeholder="tcp://host:port" /></a-form-item>
-              <a-form-item label="行情前置"><a-input v-model:value="envForm.md" placeholder="tcp://host:port" /></a-form-item>
-            </a-form>
+            <div class="env-add">
+              <a-button size="small" shape="circle" class="op-btn" title="添加环境" @click="addEnvRow">+</a-button>
+              <span class="env-add-hint">添加环境</span>
+            </div>
           </div>
           <div class="env-foot">
-            <a-button v-if="editingName" size="small" @click="resetEnvForm">取消编辑</a-button>
-            <a-button type="primary" size="small" @click="saveEnv">
-              {{ editingName ? "保存修改" : "保存环境" }}
-            </a-button>
+            <a-button type="primary" size="small" @click="saveEnvRows">保存</a-button>
           </div>
         </div>
       </div>
@@ -229,14 +221,20 @@ async function doLogin() {
 .env-foot { display: flex; gap: 8px; justify-content: flex-end; flex-shrink: 0;
   padding-top: 10px; border-top: 1px solid #f0f0f0; }  /* 保存按钮固定底部 */
 .close { font-size: 18px; color: #999; line-height: 1; cursor: pointer; }
-.env-list { margin: 2px 0 12px; }
-.env-row { display: flex; justify-content: space-between; align-items: center; font-size: 12px;
-  padding: 6px 4px; border-bottom: 1px solid #f5f5f5; border-radius: 4px; }
-.env-row.editing { background: #e6f4ff; }  /* 正在编辑的行高亮 */
-.env-info-cell { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
-.env-name { font-weight: 600; }
-.env-detail { color: #999; font-size: 11px; }
-.env-ops { display: flex; gap: 10px; flex-shrink: 0; }
-.env-form-title { font-size: 12px; color: #666; margin: 4px 0 2px; font-weight: 600; }
+.env-row { padding: 2px 4px 4px; border-bottom: 1px solid #f5f5f5; }
+.env-line1 { display: flex; align-items: center; gap: 2px; }
+.cell-name { flex: 1 1 auto; font-weight: 600; }
+.cell-mode { flex: 0 0 78px; }
+.cell-url { flex: 1 1 0; min-width: 0; font-size: 12px; color: #555; }
+.env-line2 { display: flex; gap: 8px; }
+.op-btn { width: 22px; height: 22px; min-width: 22px; display: inline-flex;
+  align-items: center; justify-content: center; font-size: 14px; line-height: 1;
+  color: #1677ff; border-color: #1677ff; }
+.op-btn.del { color: #cf1322; border-color: #cf1322; }
+.env-add { display: flex; align-items: center; gap: 8px; padding: 8px 4px 2px; }
+.env-add-hint { color: #999; font-size: 12px; }
+:deep(.env-row .ant-input-borderless), :deep(.env-row .ant-select-borderless .ant-select-selector) {
+  padding: 2px 4px; }  /* 无边框输入框紧凑化 */
+:deep(.cell-mode .ant-select-selection-item) { font-size: 12px; }
 .mono { font-family: monospace; }
 </style>
