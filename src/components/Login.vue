@@ -102,8 +102,13 @@ async function doLogin() {
 <template>
   <div class="login-wrap">
     <div class="login-card">
-      <div class="title">FAOS 差价套利</div>
+      <div class="brand">
+        <span class="brand-bar"></span>
+        <div class="title">FAOS 差价套利</div>
+        <span class="brand-bar"></span>
+      </div>
       <div class="sub">上期所跨期价差套利 · SimNow</div>
+      <div class="sub-line"></div>
       <a-form layout="vertical" class="form">
         <a-form-item label="CTP 账号">
           <a-input v-model:value="form.ctp_account" placeholder="投资者代码，如 261518" size="large" @pressEnter="doLogin()" />
@@ -159,10 +164,15 @@ async function doLogin() {
 </template>
 
 <style scoped>
-.login-wrap { height: 100vh; display: flex; align-items: center; justify-content: center; background: #f0f5ff; }
-.login-card { width: 420px; background: #fff; border-radius: 10px; box-shadow: 0 4px 24px rgba(0,0,0,.08); padding: 28px 32px; }
-.title { font-size: 22px; font-weight: 700; text-align: center; }
-.sub { color: #999; font-size: 12px; text-align: center; margin: 4px 0 18px; }
+/* 沉浸式登录（2026-10-24）：窗口即登录页——纯白底、无卡片边界/阴影，
+   与主界面白底 AntD 风格同源，消除小窗里的色块割裂感 */
+.login-wrap { height: 100vh; background: #fff; display: flex; align-items: center; justify-content: center; }
+.login-card { width: 100%; max-width: 340px; padding: 0 8px; }
+.brand { display: flex; align-items: center; justify-content: center; gap: 10px; margin-bottom: 4px; }
+.brand-bar { width: 4px; height: 22px; border-radius: 2px; background: #1677ff; }
+.title { font-size: 21px; font-weight: 700; text-align: center; }
+.sub { color: #999; font-size: 12px; text-align: center; margin: 4px 0 6px; }
+.sub-line { width: 48px; height: 2px; margin: 0 auto 24px; background: #1677ff; border-radius: 1px; opacity: .85; }
 .row2 { display: flex; gap: 12px; }
 .half { flex: 1; }
 .btns { display: flex; gap: 12px; margin-top: 14px; }
@@ -170,10 +180,11 @@ async function doLogin() {
 .hint { color: #bbb; font-size: 12px; margin-top: 12px; margin-bottom: 0; }
 .env-info { color: #999; font-size: 12px; margin: -8px 0 10px; }
 .env-mgr { position: fixed; inset: 0; z-index: 1001; background: rgba(0,0,0,.45);
-  display: flex; align-items: center; justify-content: center; }
-.env-card { width: 420px; max-height: 80vh; overflow-y: auto; background: #fff;
-  border-radius: 8px; box-shadow: 0 6px 24px rgba(0,0,0,.18); padding: 14px 16px; }
-.env-head { display: flex; justify-content: space-between; font-weight: 600; font-size: 14px; margin-bottom: 8px; }
+  display: flex; align-items: flex-start; justify-content: center; padding-top: 56px; }
+.env-card { width: 420px; max-height: 70vh; overflow-y: auto; background: #fff;
+  border-radius: 8px; box-shadow: 0 6px 24px rgba(0,0,0,.18); padding: 12px 14px; }
+.env-head { display: flex; justify-content: space-between; font-weight: 600; font-size: 14px;
+  margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px solid #f0f0f0; }
 .close { font-size: 18px; color: #999; line-height: 1; }
 .env-list { margin: 8px 0 12px; }
 .env-row { display: flex; justify-content: space-between; font-size: 12px; padding: 4px 0; border-bottom: 1px solid #f5f5f5; }

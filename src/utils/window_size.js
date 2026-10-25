@@ -3,7 +3,7 @@
 // 非 Tauri 环境（jsdom/纯浏览器）静默忽略。需要 capabilities 授权：
 // core:window:allow-set-size / allow-set-resizable / allow-center。
 
-const LOGIN_SIZE = { width: 520, height: 600 };
+const LOGIN_SIZE = { width: 420, height: 640 };
 const MAIN_SIZE = { width: 1400, height: 900 };
 
 export async function setLoginWindowSize() {
