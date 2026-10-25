@@ -20,25 +20,47 @@ const environments = ref([]);
 const envOptions = computed(() => environments.value.map((e) => ({ value: e.name, label: e.name })));
 const currentEnv = computed(() => environments.value.find((e) => e.name === form.counter));
 
-// 环境管理小面板
+// 环境管理弹窗（2026-10-24 改版）：打开即见列表，编辑/添加共用表单，保存按钮固定底部
 const envMgrOpen = ref(false);
 const envForm = reactive({ name: "", mode: "实盘", td: "", md: "" });
+const editingName = ref("");  // 非空=正在编辑该原名的环境（名称可改，保存时先删旧再存新）
 
 async function openEnvMgr() {
   envMgrOpen.value = true;
+  resetEnvForm();
+}
+
+function resetEnvForm() {
+  editingName.value = "";
   envForm.name = "";
   envForm.mode = "实盘";
   envForm.td = "";
   envForm.md = "";
 }
 
-async function addEnv() {
+function editEnv(e) {
+  editingName.value = e.name;
+  envForm.name = e.name;
+  envForm.mode = e.mode;
+  envForm.td = e.td;
+  envForm.md = e.md;
+}
+
+async function saveEnv() {
+  const name = envForm.name.trim();
+  if (!name) {
+    message.warning("环境名称不能为空");
+    return;
+  }
   try {
-    const r = await call("add_environment", { ...envForm, name: envForm.name.trim() });
+    if (editingName.value && editingName.value !== name) {
+      await call("remove_environment", { name: editingName.value });  // 改名：先删旧
+    }
+    const r = await call("add_environment", { ...envForm, name });
     environments.value = r.environments;
-    form.counter = envForm.name.trim();
+    form.counter = name;
     message.success("环境已保存");
-    envMgrOpen.value = false;
+    resetEnvForm();
   } catch (e) {
     message.error(String(e));
   }
@@ -49,6 +71,7 @@ async function removeEnv(name) {
     const r = await call("remove_environment", { name });
     environments.value = r.environments;
     if (form.counter === name) form.counter = environments.value[0]?.name || "";
+    if (editingName.value === name) resetEnvForm();
     message.success("环境已删除");
   } catch (e) {
     message.error(String(e));
@@ -133,30 +156,45 @@ async function doLogin() {
         <p class="hint">行情由本地 CTP 两腿合成，登录即连接交易与行情（SimNow 交易时段 8:30–16:30 / 夜盘）。</p>
       </a-form>
 
-      <!-- 柜台环境管理 -->
+      <!-- 柜台环境管理：列表优先，编辑/添加共用表单，保存按钮固定底部 -->
       <div v-if="envMgrOpen" class="env-mgr" @click.self="envMgrOpen = false">
         <div class="env-card">
           <div class="env-head">
             <span>柜台环境管理</span>
             <a class="close" @click="envMgrOpen = false">×</a>
           </div>
-          <a-form layout="vertical">
-            <a-form-item label="环境名称"><a-input v-model:value="envForm.name" placeholder="如 华泰实盘 / SimNow 第一组" /></a-form-item>
-            <a-form-item label="柜台模式">
-              <a-select v-model:value="envForm.mode" :options="[{ value: '实盘', label: '实盘（生产证书）' }, { value: '测试', label: '测试' }]" />
-            </a-form-item>
-            <a-form-item label="交易前置"><a-input v-model:value="envForm.td" placeholder="tcp://host:port" /></a-form-item>
-            <a-form-item label="行情前置"><a-input v-model:value="envForm.md" placeholder="tcp://host:port" /></a-form-item>
-          </a-form>
-          <div class="env-list">
-            <div v-for="e in environments" :key="e.name" class="env-row">
-              <span class="mono">{{ e.name }}（{{ e.mode }}）</span>
-              <a-popconfirm :title="`删除环境 ${e.name}？`" @confirm="removeEnv(e.name)">
-                <a style="color: #cf1322">删除</a>
-              </a-popconfirm>
+          <div class="env-body">
+            <div class="env-list">
+              <div v-for="e in environments" :key="e.name" class="env-row"
+                   :class="{ editing: editingName === e.name }">
+                <div class="env-info-cell">
+                  <span class="env-name mono">{{ e.name }}</span>
+                  <span class="env-detail">{{ e.mode }} · {{ e.td }}</span>
+                </div>
+                <span class="env-ops">
+                  <a @click="editEnv(e)">编辑</a>
+                  <a-popconfirm :title="`删除环境 ${e.name}？`" @confirm="removeEnv(e.name)">
+                    <a style="color: #cf1322">删除</a>
+                  </a-popconfirm>
+                </span>
+              </div>
             </div>
+            <div class="env-form-title">{{ editingName ? `编辑：${editingName}` : "添加环境" }}</div>
+            <a-form layout="vertical" class="env-form">
+              <a-form-item label="环境名称"><a-input v-model:value="envForm.name" placeholder="如 华泰实盘 / SimNow 第一组" /></a-form-item>
+              <a-form-item label="柜台模式">
+                <a-select v-model:value="envForm.mode" :options="[{ value: '实盘', label: '实盘（生产证书）' }, { value: '测试', label: '测试' }]" />
+              </a-form-item>
+              <a-form-item label="交易前置"><a-input v-model:value="envForm.td" placeholder="tcp://host:port" /></a-form-item>
+              <a-form-item label="行情前置"><a-input v-model:value="envForm.md" placeholder="tcp://host:port" /></a-form-item>
+            </a-form>
           </div>
-          <a-button type="primary" block @click="addEnv">保存环境</a-button>
+          <div class="env-foot">
+            <a-button v-if="editingName" size="small" @click="resetEnvForm">取消编辑</a-button>
+            <a-button type="primary" size="small" @click="saveEnv">
+              {{ editingName ? "保存修改" : "保存环境" }}
+            </a-button>
+          </div>
         </div>
       </div>
     </div>
@@ -181,12 +219,24 @@ async function doLogin() {
 .env-info { color: #999; font-size: 12px; margin: -8px 0 10px; }
 .env-mgr { position: fixed; inset: 0; z-index: 1001; background: rgba(0,0,0,.45);
   display: flex; align-items: flex-start; justify-content: center; padding-top: 56px; }
-.env-card { width: 420px; max-height: 70vh; overflow-y: auto; background: #fff;
-  border-radius: 8px; box-shadow: 0 6px 24px rgba(0,0,0,.18); padding: 12px 14px; }
+.env-card { width: 440px; max-height: 70vh; overflow: hidden; background: #fff;
+  border-radius: 8px; box-shadow: 0 6px 24px rgba(0,0,0,.18); padding: 12px 14px;
+  display: flex; flex-direction: column; }
 .env-head { display: flex; justify-content: space-between; font-weight: 600; font-size: 14px;
-  margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px solid #f0f0f0; }
-.close { font-size: 18px; color: #999; line-height: 1; }
-.env-list { margin: 8px 0 12px; }
-.env-row { display: flex; justify-content: space-between; font-size: 12px; padding: 4px 0; border-bottom: 1px solid #f5f5f5; }
+  margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px solid #f0f0f0;
+  flex-shrink: 0; }  /* 标题/关闭固定顶部（2026-10-24） */
+.env-body { overflow-y: auto; flex: 1 1 auto; min-height: 0; }  /* 内容独立滚动 */
+.env-foot { display: flex; gap: 8px; justify-content: flex-end; flex-shrink: 0;
+  padding-top: 10px; border-top: 1px solid #f0f0f0; }  /* 保存按钮固定底部 */
+.close { font-size: 18px; color: #999; line-height: 1; cursor: pointer; }
+.env-list { margin: 2px 0 12px; }
+.env-row { display: flex; justify-content: space-between; align-items: center; font-size: 12px;
+  padding: 6px 4px; border-bottom: 1px solid #f5f5f5; border-radius: 4px; }
+.env-row.editing { background: #e6f4ff; }  /* 正在编辑的行高亮 */
+.env-info-cell { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.env-name { font-weight: 600; }
+.env-detail { color: #999; font-size: 11px; }
+.env-ops { display: flex; gap: 10px; flex-shrink: 0; }
+.env-form-title { font-size: 12px; color: #666; margin: 4px 0 2px; font-weight: 600; }
 .mono { font-family: monospace; }
 </style>
