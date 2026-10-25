@@ -415,6 +415,25 @@ async def reorder_strategies(body: ReorderBody, state: Annotated[AppState, State
         [s.model_dump(mode="json") for s in state.manager.reorder_strategies(body.ordered_ids)]))
 
 
+from faos_app.netcheck import tcp_latency_ms as _tcp_latency_ms
+
+
+class LatencyBody(BaseModel):
+    td: str = ""
+    md: str = ""
+
+
+@commands.command()
+async def check_env_latency(body: LatencyBody, state: Annotated[AppState, State()]) -> DictResp:
+    """柜台环境延迟检测（2026-10-25）：交易/行情前置各测 TCP 握手毫秒（-1=不通）。
+    阻塞 socket 走线程池，td/md 并行，不卡事件循环。"""
+    import anyio
+
+    td_ms, md_ms = await anyio.to_thread.run_sync(
+        lambda: (_tcp_latency_ms(body.td), _tcp_latency_ms(body.md)))
+    return DictResp({"td": td_ms, "md": md_ms})
+
+
 @commands.command()
 async def connect_ctp(body: Empty, state: Annotated[AppState, State()]) -> Ok:
     if state.ctp is None:

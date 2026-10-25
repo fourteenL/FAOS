@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, reactive, ref } from "vue";
+import { computed, onMounted, reactive, ref, watch } from "vue";
 import { message } from "ant-design-vue";
 import { call } from "../api/pytauri.js";
 import { useAppStore } from "../stores/app.js";
@@ -28,6 +28,7 @@ const envRows = ref([]);  // [{orig: 原名|null新增, name, mode, td, md}]
 async function openEnvMgr() {
   envMgrOpen.value = true;
   envRows.value = environments.value.map((e) => ({ ...e, orig: e.name }));
+  checkAllEnv();  // 打开即检测全部环境延迟
 }
 
 function addEnvRow() {
@@ -78,6 +79,45 @@ async function saveEnvRows() {
 const remembered = ref(false);
 const loading = ref(false);
 
+// 环境延迟（2026-10-25）：name -> {td, md}（毫秒；-1=不通；null=检测中）
+const envLatency = reactive({});
+let latencySeq = 0;  // 弹窗重开/手动重测时作废旧请求
+
+async function checkEnv(e) {
+  envLatency[e.name] = null;  // 检测中
+  try {
+    const r = await call("check_env_latency", { td: e.td, md: e.md });
+    envLatency[e.name] = r;
+  } catch (err) {
+    envLatency[e.name] = { td: -1, md: -1 };
+  }
+}
+
+async function checkAllEnv() {
+  const seq = ++latencySeq;
+  for (const e of environments.value) {
+    if (seq !== latencySeq) return;  // 已作废
+    checkEnv(e);                      // 逐个发起（后端各自并行 td/md）
+  }
+}
+
+function latencyText(e) {
+  const l = envLatency[e.name];
+  if (!l) return "检测中…";
+  const fmt = (v) => (v < 0 ? "不通" : `${v}ms`);
+  return `交易 ${fmt(l.td)} · 行情 ${fmt(l.md)}`;
+}
+
+function latencyCls(e) {
+  const l = envLatency[e.name];
+  if (!l) return "lat-checking";
+  const worst = Math.max(l.td, l.md);
+  if (worst < 0) return "lat-bad";
+  if (worst < 150) return "lat-good";
+  if (worst < 400) return "lat-mid";
+  return "lat-bad";
+}
+
 onMounted(async () => {
   try {
     const st = await store.getLoginState();
@@ -90,6 +130,10 @@ onMounted(async () => {
   } catch (e) {
     /* 预填失败不阻塞登录 */
   }
+});
+
+watch(() => form.counter, () => {
+  if (currentEnv.value) checkEnv(currentEnv.value);  // 切换环境即测当前延迟
 });
 
 async function doLogin() {
@@ -145,6 +189,7 @@ async function doLogin() {
         </a-form-item>
         <div v-if="currentEnv" class="env-info">
           {{ currentEnv.mode }} · 交易 {{ currentEnv.td }} · 行情 {{ currentEnv.md }}
+          <span :class="latencyCls(currentEnv)">〔延迟 {{ latencyText(currentEnv) }}〕</span>
         </div>
         <a-checkbox v-model:checked="form.remember">记住我（保存账号密码到本机）</a-checkbox>
         <div class="btns">
@@ -158,7 +203,10 @@ async function doLogin() {
         <div class="env-card">
           <div class="env-head">
             <span>柜台环境管理</span>
-            <a class="close" @click="envMgrOpen = false">×</a>
+            <span>
+              <a class="check-all" @click="checkAllEnv">检测全部</a>
+              <a class="close" @click="envMgrOpen = false">×</a>
+            </span>
           </div>
           <div class="env-body">
             <div v-for="(r, i) in envRows" :key="r.orig || `new-${i}`" class="env-row">
@@ -177,6 +225,10 @@ async function doLogin() {
                   placeholder="交易前置 tcp://host:port" class="cell-url" />
                 <a-input v-model:value="r.md" :bordered="false" size="small"
                   placeholder="行情前置 tcp://host:port" class="cell-url" />
+              </div>
+              <div v-if="r.name.trim()" class="env-lat" :class="latencyCls(r)">
+                延迟 {{ latencyText(r) }}
+                <a class="recheck" @click="checkEnv(r)">重测</a>
               </div>
             </div>
             <div class="env-add">
@@ -231,6 +283,13 @@ async function doLogin() {
   align-items: center; justify-content: center; font-size: 14px; line-height: 1;
   color: #1677ff; border-color: #1677ff; }
 .op-btn.del { color: #cf1322; border-color: #cf1322; }
+.env-lat { font-size: 11px; padding: 1px 4px 2px; display: flex; gap: 8px; align-items: center; }
+.lat-good { color: #389e0d; }
+.lat-mid { color: #d46b08; }
+.lat-bad { color: #cf1322; }
+.lat-checking { color: #999; }
+.check-all { font-size: 12px; color: #1677ff; margin-right: 12px; }
+.recheck { color: #1677ff; font-size: 11px; }
 .env-add { display: flex; align-items: center; gap: 8px; padding: 8px 4px 2px; }
 .env-add-hint { color: #999; font-size: 12px; }
 :deep(.env-row .ant-input-borderless), :deep(.env-row .ant-select-borderless .ant-select-selector) {
