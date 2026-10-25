@@ -17,6 +17,7 @@ import sys
 from pathlib import Path
 from typing import Optional
 
+import pydantic
 from pydantic import BaseModel
 
 
@@ -39,6 +40,43 @@ DEFAULT_CTP_ENVIRONMENTS = [
     CtpEnvironment(name="SimNow 7×24", mode="实盘",
                    td="tcp://182.254.243.31:40001", md="tcp://182.254.243.31:40011"),
 ]
+
+
+def load_ctp_environments(extra_dirs=None) -> list:
+    """柜台环境表：config/ctp_environments.json（可手工编辑）> 内置默认（2026-10-24
+    用户定稿：登录页的环境列表落到 config 目录，随仓库/安装包分发）。
+
+    候选：开发态=模块位置向上找 config/；打包态=exe 同目录 config/；
+    extra_dirs 显式指定优先；APPDATA 兜底（用户手工放置）。界面上的增删
+    仍写 %APPDATA%/faos/settings.json 的 ctp_environments 覆盖层。"""
+    import json as _json
+    import sys as _sys
+    from pathlib import Path as _Path
+
+    candidates = []
+    if extra_dirs:
+        candidates += [_Path(d) / "ctp_environments.json" for d in extra_dirs]
+    try:
+        here = _Path(__file__).resolve()
+        for parent in here.parents[:6]:
+            candidates.append(parent / "config" / "ctp_environments.json")
+    except Exception:
+        pass
+    try:
+        candidates.append(_Path(_sys.executable).resolve().parent / "config" / "ctp_environments.json")
+    except Exception:
+        pass
+    candidates.append(default_data_dir() / "ctp_environments.json")
+    for f in candidates:
+        try:
+            if f.exists():
+                data = _json.loads(f.read_text(encoding="utf-8"))
+                envs = data.get("environments") if isinstance(data, dict) else data
+                if isinstance(envs, list) and envs:
+                    return [CtpEnvironment.model_validate(e) for e in envs]
+        except Exception:
+            continue
+    return list(DEFAULT_CTP_ENVIRONMENTS)
 
 
 class CtpSettings(BaseModel):
@@ -90,7 +128,9 @@ class Settings(BaseModel):
     log: LogSettings = LogSettings()
     products: list[str] = SHFE_PRODUCTS_DEFAULT  # 表格上方品种筛选列表，配置文件可增删
     product_dominant: dict[str, str] = {}  # 品种主力合约配置覆盖（如 {"ag": "2612"}；缺省=最近未来月自动推断）
-    ctp_environments: list[CtpEnvironment] = DEFAULT_CTP_ENVIRONMENTS  # 柜台环境列表（登录页可增删）
+    # 柜台环境列表（登录页可增删）：config/ctp_environments.json > 内置默认
+    ctp_environments: list[CtpEnvironment] = pydantic.Field(
+        default_factory=load_ctp_environments)
     product_ticks: dict[str, float] = PRODUCT_TICKS_DEFAULT  # 品种 -> 最小变动价位
 
 
