@@ -1,5 +1,5 @@
 <script setup>
-import { onMounted, ref } from "vue";
+import { onMounted, ref, watch } from "vue";
 import { message, notification } from "ant-design-vue";
 import { useAppStore } from "./stores/app.js";
 import StatusBanner from "./components/StatusBanner.vue";
@@ -14,6 +14,7 @@ import SettingsDrawer from "./components/SettingsDrawer.vue";
 import Login from "./components/Login.vue";
 import ProductFilter from "./components/ProductFilter.vue";
 import { applyAppTitle } from "./utils/app_title.js";
+import { setLoginWindowSize, setMainWindowSize } from "./utils/window_size.js";
 
 const store = useAppStore();
 const settingsDrawer = ref(null);
@@ -43,6 +44,7 @@ async function doStopAll() {
 
 onMounted(async () => {
   applyAppTitle(); // 窗口标题带版本号（如 FAOS 差价套利 v0.1.0-beta.6）
+  setLoginWindowSize(); // 登录页=小窗（登录成功切主尺寸）
   try {
     await store.init(); // 状态/事件绑定先行（登录页也需要连接状态）
   } catch (e) {
@@ -51,6 +53,8 @@ onMounted(async () => {
   // 初始化后统一弹 notice
   import("./stores/app.js").then(() => {});
 });
+
+watch(loggedIn, (v) => { v ? setMainWindowSize() : setLoginWindowSize(); });
 
 function watchNotices() {
   let seen = 0;
