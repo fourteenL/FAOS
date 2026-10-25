@@ -20,3 +20,4 @@ api.md
 progress.md
 src-tauri/dist-settings/
 faos-*.log
+.mimosa/
