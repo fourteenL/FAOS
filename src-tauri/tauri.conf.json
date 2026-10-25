@@ -13,9 +13,9 @@
     "windows": [
       {
         "title": "FAOS 差价套利",
-        "width": 1400,
-        "height": 900,
-        "resizable": true,
+        "width": 520,
+        "height": 600,
+        "resizable": false,
         "fullscreen": false
       }
     ],
