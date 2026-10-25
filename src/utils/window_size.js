@@ -13,6 +13,7 @@ export async function setLoginWindowSize() {
     await w.setResizable(false);
     await w.setSize(new LogicalSize(LOGIN_SIZE.width, LOGIN_SIZE.height));
     await w.center();
+    await w.show();  // 窗口启动隐藏（防白屏闪烁），前端首帧就绪后才显示
   } catch (e) {
     console.warn("[window_size] 登录窗口尺寸设置失败:", e?.message || e);
   }
