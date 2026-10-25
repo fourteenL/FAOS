@@ -1,5 +1,5 @@
 <script setup>
-import { onMounted, ref, watch } from "vue";
+import { nextTick, onMounted, ref, watch } from "vue";
 import { message, notification } from "ant-design-vue";
 import { useAppStore } from "./stores/app.js";
 import StatusBanner from "./components/StatusBanner.vue";
@@ -21,6 +21,20 @@ const settingsDrawer = ref(null);
 const loggedIn = ref(false);
 const subscriptionDrawer = ref(null);
 const triggerList = ref(null);
+
+// 登录→主界面过渡动画（2026-10-25）：登录页上下向中间收起 → 主界面由中间向上下展开
+const phase = ref("login");  // login | collapsing | expanding | main
+
+async function onLoggedIn() {
+  phase.value = "collapsing";            // 登录页收起（380ms）
+  await new Promise((r) => setTimeout(r, 390));
+  loggedIn.value = true;                 // 切主界面
+  setMainWindowSize();                   // 窗口放大（与展开动画并行）
+  await nextTick();
+  phase.value = "expanding";             // 主界面展开（420ms）
+  await new Promise((r) => setTimeout(r, 430));
+  phase.value = "main";
+}
 
 function openSettings() {
   settingsDrawer.value?.open();
@@ -82,8 +96,10 @@ watchNotices();
 </script>
 
 <template>
-  <Login v-if="!loggedIn" @logged-in="loggedIn = true" />
-  <a-layout v-else style="height: 100vh">
+  <div v-if="!loggedIn" class="login-stage" :class="{ collapsing: phase === 'collapsing' }">
+    <Login @logged-in="onLoggedIn" />
+  </div>
+  <a-layout v-else :class="{ expanding: phase === 'expanding' }" style="height: 100vh">
     <a-layout-header style="height: auto; padding: 0; background: #fff; color: #333">
       <StatusBanner>
         <template #actions>
@@ -128,6 +144,19 @@ watchNotices();
 
 <style>
 body { margin: 0; font-family: "Microsoft YaHei", sans-serif; }
+/* 登录→主界面过渡（2026-10-25）：收起=上下向中间塌陷，展开=由中线向上下撑开 */
+.login-stage { height: 100vh; overflow: hidden; }
+.login-stage.collapsing { animation: collapse-to-center .38s ease-in both; }
+@keyframes collapse-to-center {
+  to { transform: scaleY(0); opacity: .2; }
+}
+main.expanding, .ant-layout.expanding {
+  animation: expand-from-center .42s cubic-bezier(.2, .7, .3, 1) both;
+}
+@keyframes expand-from-center {
+  from { transform: scaleY(0); opacity: .3; }
+  to { transform: scaleY(1); opacity: 1; }
+}
 .left-pane { flex: 0 0 46%; overflow: auto; border-right: 1px solid #f0f0f0; }
 .right-pane { flex: 1 1 auto; overflow: auto; }
 .pane-title { font-weight: 600; padding: 8px; background: #fafafa; border-bottom: 1px solid #f0f0f0; }
