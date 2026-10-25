@@ -101,6 +101,18 @@ async function checkAllEnv() {
   }
 }
 
+function latencyTdText(e) {
+  const l = envLatency[e.name];
+  if (!l) return "检测中…";
+  return l.td < 0 ? "不通" : `${l.td}ms`;
+}
+
+function latencyMdText(e) {
+  const l = envLatency[e.name];
+  if (!l) return "检测中…";
+  return l.md < 0 ? "不通" : `${l.md}ms`;
+}
+
 function latencyText(e) {
   const l = envLatency[e.name];
   if (!l) return "检测中…";
@@ -188,14 +200,13 @@ async function doLogin() {
           </div>
         </a-form-item>
         <div v-if="currentEnv" class="env-info">
-          {{ currentEnv.mode }} · 交易 {{ currentEnv.td }} · 行情 {{ currentEnv.md }}
-          <span :class="latencyCls(currentEnv)">〔延迟 {{ latencyText(currentEnv) }}〕</span>
+          <div>交易 {{ currentEnv.td }} <span :class="latencyCls(currentEnv)">{{ latencyTdText(currentEnv) }}</span></div>
+          <div>行情 {{ currentEnv.md }} <span :class="latencyCls(currentEnv)">{{ latencyMdText(currentEnv) }}</span></div>
         </div>
         <a-checkbox v-model:checked="form.remember">记住我（保存账号密码到本机）</a-checkbox>
         <div class="btns">
           <a-button type="primary" size="large" class="btn" :loading="loading" @click="doLogin()">登 录</a-button>
         </div>
-        <p class="hint">行情由本地 CTP 两腿合成，登录即连接交易与行情（SimNow 交易时段 8:30–16:30 / 夜盘）。</p>
       </a-form>
 
       <!-- 柜台环境管理：列表优先，编辑/添加共用表单，保存按钮固定底部 -->
@@ -260,7 +271,7 @@ async function doLogin() {
 .btns { display: flex; gap: 12px; margin-top: 14px; }
 .btn { flex: 1; }
 .hint { color: #bbb; font-size: 12px; margin-top: 12px; margin-bottom: 0; }
-.env-info { color: #999; font-size: 12px; margin: -8px 0 10px; }
+.env-info { color: #999; font-size: 12px; margin: -8px 0 10px; line-height: 1.7; }
 .env-mgr { position: fixed; inset: 0; z-index: 1001; background: rgba(0,0,0,.45);
   display: flex; align-items: flex-start; justify-content: center; padding-top: 56px; }
 .env-card { width: 440px; max-height: 70vh; overflow: hidden; background: #fff;
