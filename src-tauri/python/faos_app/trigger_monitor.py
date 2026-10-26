@@ -103,7 +103,12 @@ class TriggerMonitor:
                     if key not in self._exec_fail_warned:
                         self._exec_fail_warned.add(key)
                         self._manager.push.notice("error", f"策略 #{s.id} 触发执行失败：{e}")
-                    continue  # 触发单保留；参数调整/风控解除后下一帧自动重试
+                    # 被拒即撤销触发单（2026-10-26：保留会每 tick 重火——夜盘日志
+                    # 单日 10132 次无效点火风暴实证）；条件变化后需重新挂单
+                    s.triggers.remove(t)
+                    self._manager.store.update(s)
+                    self._manager.push.strategy(s)
+                    continue  # 触发单已撤销；下一帧不再重试
                 self._exec_fail_warned.discard((s.id, t.action.value))  # 成功后重置告警（可再次提醒）
                 if algoid is None:
                     if retry_key not in self._deferred_logged:

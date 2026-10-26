@@ -149,24 +149,35 @@ class FaosTakerAlgo(SpreadTakerAlgo):
         else:
             price = leg_order_price(leg_tick, leg_contract.pricetick, slip, order_type, "sell")
             direction = Direction.SHORT
-        plan = (self.extra or {}).get("close_split", {}).get(vt_symbol)
+        plan_map = (self.extra or {}).get("close_split")
+        plan = plan_map.get(vt_symbol) if plan_map else None
         vol = abs(leg_volume)
+        if plan_map is not None and plan is None:
+            # 平仓模式下腿无拆分计划（异常形态）→ 不发单（防净仓转换乱仓）
+            self.write_log(f"平仓腿 {vt_symbol} 无拆分计划，不发单（防净仓转换乱仓）")
+            return
         if plan:
-            # 剩余计划 = 初始拆分 − 本算法已成交今/昨；先昨后期；计划外量回落账户级
+            # 剩余计划 = 初始拆分 − 本算法已成交今/昨；先昨后期
             done = self.leg_offset_done.get(vt_symbol, {"td": 0.0, "yd": 0.0})
             yd_left = max(0.0, plan["yd"] - done["yd"])
             td_left = max(0.0, plan["td"] - done["td"])
             yd_use = min(yd_left, vol)
             td_use = min(td_left, vol - yd_use)
             overflow = vol - yd_use - td_use
+            if overflow > 1e-9:
+                # 平仓计划外量不再回落账户级净仓转换（会反手开新仓/吃共享腿
+                # 他策略持仓，2026-10-26 夜盘事故单实证）——不发单留痕，
+                # 缺口由服务层告警+人工经今昨仓管理处理
+                self.write_log(f"平仓计划外量 {overflow:g} 不发单（防净仓转换乱仓）")
             if yd_use > 0:
                 self._send_offset_order(vt_symbol, price, yd_use, direction, Offset.CLOSEYESTERDAY)
             if td_use > 0:
                 self._send_offset_order(vt_symbol, price, td_use, direction, Offset.CLOSETODAY)
-            if overflow > 1e-9:
-                self.send_order(vt_symbol, price, overflow, direction)
             return
-        self.send_order(vt_symbol, price, vol, direction)
+        # 开仓全显式 OPEN（2026-10-26 用户定稿）：绕过账户级 lock/净仓转换——
+        # 上期所 lock 转换会「先平对向昨仓再开」，吃掉共享腿他策略/隔夜持仓；
+        # OPEN 原样发柜台=SHFE 双向持仓真锁仓（10-19 开平语义终稿）
+        self._send_offset_order(vt_symbol, price, vol, direction, Offset.OPEN)
 
     def _send_offset_order(self, vt_symbol: str, price: float, volume: float,
                            direction, offset) -> None:

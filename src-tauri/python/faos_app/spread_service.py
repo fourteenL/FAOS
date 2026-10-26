@@ -194,46 +194,37 @@ class SpreadService:
         # 平仓通道=按钮专用（2026-10-16 定稿修订）：按挂单 is_close 标记判定，
         # 不再看方向与持仓的关系——手动反向挂单=正常开仓（锁仓，不净任何持仓）
         closing = bool(getattr(trigger, "is_close", False))
-        # 开仓对向昨仓拦截（2026-10-23 用户定稿，修「平昨乱仓」）：vnpy lock 转换
-        # 在上期所「先平昨再开」——账户两腿存在对向昨仓时开仓会把它平掉（共享腿
-        # ag2612 场景=吃掉他策略/本策略昨仓，10-23 log LEDGER_CLAMPED 乱仓实证）。
-        # 拒单点名腿与手数，人工先处理（平仓按钮/今昨仓管理）再开；平仓单不拦。
-        if not closing:
-            block = self._opposite_yd_blocking(strategy, trigger.action)
-            if block:
-                raise ValueError(block)
-        # 平仓显式今昨拆分（2026-10-19 定稿，修平仓归属错位）：共享主力腿的两策略
-        # 各自平仓时，账户级净仓转换会错吃对方的今昨仓——按本策略账本显式发
-        # 平今/平昨单（先平昨省费）；账本不足的量在算法内回落账户级
+        # 开平发单语义（2026-10-26 用户定稿，退役账户级转换介入）：vnpy lock
+        # 转换在上期所「先平对向昨仓再开」，会吃掉共享腿他策略/隔夜持仓
+        # （10-23 加预检拦截 → 10-26 夜盘风暴实证拦截本身与业务冲突且挡不住
+        # 竞态）——开仓一律显式 Offset.OPEN 原样发柜台（SHFE 双向持仓=真锁仓，
+        # 10-19 终稿语义保留），由 FaosTakerAlgo 全量接管发单偏移。
+        # 平仓按柜台实际显式拆平今/平昨（见 _plan_close_split），溢出不发。
         extra = {
             "slip_a": strategy.slip_a,
             "slip_b": strategy.slip_b,
             "order_type_a": strategy.order_type_a,
             "order_type_b": strategy.order_type_b,
         }
+        volume = trigger.lots
         if closing:
-            split = self._plan_close_split(strategy, trigger)
-            if split:
-                extra["close_split"] = split
-            else:
-                # 账本不足/未建：回落账户级净仓转换——共享腿上可能平掉其他策略
-                # 的持仓（2026-10-24 log 实证），不静默，点名提醒事后核对
-                self._push.notice(
-                    "warn",
-                    f"{strategy.pair} 平仓按账户实际持仓执行（本策略账本不足或未建，"
-                    "共享腿上可能涉及其他策略持仓），成交后请与无限易核对归属")
-        # 策略隔离（2026-10-14 用户实证三问题同根：共享主力腿+净仓转换互相吃腿）：
-        # 开仓锁仓（OPEN 永不净转换→上期所双向持仓，各策略腿物理隔离，也避免
-        # 平今/平昨错配被柜台拒单）；反向平仓保持净仓（实际对冲本策略两腿）
+            split, send_total = self._plan_close_split(strategy, trigger)
+            if split is None:
+                raise ValueError("柜台持仓不可知，拒绝平仓（防净仓转换反手开新仓）")
+            if not split or send_total <= 1e-9:
+                raise ValueError("柜台无可平持仓（策略账本与柜台实际均为 0 或方向不符）"
+                                 "——不为平仓反手开新仓")
+            extra["close_split"] = split
+            volume = send_total
         algoid: str = self._engine.start_algo(
             spread_name=strategy.pair,
             direction=_ACTION_DIRECTION[trigger.action],
             price=trigger.spread,
-            volume=trigger.lots,
+            volume=volume,
             payup=self._algo.payup,
             interval=self._algo.interval,
-            lock=not closing,  # 开仓锁仓/平仓净仓固定语义（algo.lock 已退役：
-            #                    该配置若为 true 会把平仓也变开仓，2026-10-24 移除）
+            lock=not closing,  # 基类签名保留；发单偏移已由 FaosTakerAlgo 显式指定，
+                               # 账户级 lock/净仓转换不再介入任何腿
             extra=extra,
         )
         if algoid:
@@ -249,21 +240,43 @@ class SpreadService:
             self._algo_traded[algoid] = 0
         return algoid or None
 
-    def account_close_pool(self, strategy: Strategy, action) -> float:
-        """账户实际可平份数（按策略两腿取两侧最小，2026-10-21）：策略账本为 0 时
-        平仓按钮的兜底池——柜台有仓但 FAOS 账本未记录（老策略/手动交易/账本漂移）
-        时仍可平，避免「无限易明明有仓、FAOS 报无持仓」。"""
-        from faos_app.leg_ops import account_position_book
-
+    def _position_book(self) -> Optional[dict]:
+        """柜台实际持仓簿：vnpy OffsetConverter 增量持仓优先（与下单转换层同源，
+        成交即时更新，无 OMS 2 秒查询快照竞态——2026-10-26 夜盘「刚成交完读旧值
+        放行事故单」实证）；fake/异常回落 OMS 快照；两者都不可得返回 None。
+        {vt_symbol: {long_td, long_yd, short_td, short_yd}}。"""
         try:
-            if not self._ctp.is_ready():
-                return None  # 柜台数据未知（未连接）：由策略账本独自判断
+            converter = self._ctp.main_engine.get_converter("CTP")
+            out = {}
+            for vt, h in (converter.holdings or {}).items():
+                out[vt] = {"long_td": float(h.long_td), "long_yd": float(h.long_yd),
+                           "short_td": float(h.short_td), "short_yd": float(h.short_yd)}
+            return out
+        except Exception:
+            pass
+        try:
+            from faos_app.leg_ops import account_position_book
+
             book = account_position_book(self._ctp.get_positions())
         except Exception:
             return None
+        # 键名归一：account_position_book 产 *_today，统一成 PositionHolding 的 *_td
+        return {vt: {k.replace("today", "td"): v for k, v in row.items()}
+                for vt, row in book.items()}
+
+    def account_close_pool(self, strategy: Strategy, action) -> Optional[float]:
+        """账户实际可平份数（按策略两腿取两侧最小，2026-10-21；数据源 2026-10-26
+        统一到 OffsetConverter）：策略账本为 0 时平仓按钮的兜底池——柜台有仓但
+        FAOS 账本未记录（老策略/手动交易/账本漂移）时仍可平，避免「无限易明明
+        有仓、FAOS 报无持仓」。"""
+        if not self._ctp.is_ready():
+            return None  # 柜台数据未知（未连接）：由策略账本独自判断
+        book = self._position_book()
+        if book is None:
+            return None
         a = book.get(vt_symbol_of(strategy.leg_a)) or {}
         b = book.get(vt_symbol_of(strategy.leg_b)) or {}
-        tot = lambda row, d: row.get(f"{d}_today", 0) + row.get(f"{d}_yd", 0)
+        tot = lambda row, d: row.get(f"{d}_td", 0) + row.get(f"{d}_yd", 0)
         if action == TriggerAction.open_long:  # 平空：A 买回（需 A 空）、B 卖出（需 B 多）
             return min(tot(a, "short"), tot(b, "long"))
         return min(tot(a, "long"), tot(b, "short"))  # 平多：A 卖（需 A 多）、B 买（需 B 空）
@@ -395,7 +408,15 @@ class SpreadService:
         self._process_spread_algo(item)
 
     def _process_order_event(self, order) -> None:
-        """算法委托回报：登记委托号→策略（供成交入账归属）；撤单回报 → 风控计数（同单去重）。"""
+        """算法委托回报：登记委托号→策略（供成交入账/撤单计数归属）+ 撤单风控计数。
+
+        归属只信发单瞬间的 SUBMITTING 事件（请求派生 OrderData，带 reference=
+        "SpreadTrading_{pair}"）登记的 _order_pair 映射——交易所回报（含 CANCELLED）
+        的 OrderData reference 恒为空串（CTP 协议不回传，2026-10-26 夜盘实证：
+        按 reference 匹配 → 撤单计数生产环境永远为 0，测试 Fake 手填 reference
+        掩盖）。撤单计数口径（2026-10-23 定稿）：只计本策略算法 A 腿委托的
+        柜台撤单回报；主动撤（停止/超时/急停/退出/清理，见 mark_stopping_orders）
+        与同单重复回报不计。"""
         from vnpy.trader.constant import Status as _Status
 
         ref = getattr(order, "reference", "") or ""
@@ -407,23 +428,20 @@ class SpreadService:
         if order.vt_orderid in self._stopping_orders:
             self._stopping_orders.discard(order.vt_orderid)
             return  # 停止/超时/急停/退出/清理的主动撤单不计（2026-10-23 用户定稿）
-        ref = getattr(order, "reference", "") or ""
-        for s in self._store.list() if self._store else []:
-            if vt_symbol_of(s.leg_a) != order.vt_symbol:
-                continue
-            # 只统计本策略算法委托的追价撤单：reference 归属（无限易手动撤单/
-            # 共享 A 腿的他策略撤单不计——2026-10-23 修「没启动策略撤单数也涨」）
-            if ref != f"{APP_NAME}_{s.pair}":
-                continue
-            if order.vt_orderid in s.cancelled_orderids:
-                return  # 同单重复回报只计一次
-            s.cancelled_orderids.append(order.vt_orderid)
-            s.cancel_count_a += 1
-            self._store.update(s)
-            self._push.strategy(s)
-            if s.cancel_count_a >= s.max_cancels_a:
-                self._halt_on_cap(s)
-            return
+        pair = self._order_pair.get(order.vt_orderid)
+        if pair is None:
+            return  # 手动单/其他终端委托（未登记归属）
+        s = self._store.get_by_pair(pair) if self._store else None
+        if s is None or order.vt_symbol != vt_symbol_of(s.leg_a):
+            return  # 只计 A 腿（B 腿对冲撤单不计）
+        if order.vt_orderid in s.cancelled_orderids:
+            return  # 同单重复回报只计一次
+        s.cancelled_orderids.append(order.vt_orderid)
+        s.cancel_count_a += 1
+        self._store.update(s)
+        self._push.strategy(s)
+        if s.cancel_count_a >= s.max_cancels_a:
+            self._halt_on_cap(s)
 
     def _process_trade_event(self, trade) -> None:
         """本策略算法成交 → 策略级今昨账本入账（2026-10-19 定稿，修平仓归属错位）。
@@ -445,37 +463,60 @@ class SpreadService:
 
         self._booked_tradeids.add(trade.vt_tradeid)
         roll_book(s, _dt.now())
-        apply_trade_to_book(s, trade.vt_symbol.split(".")[0],
-                            getattr(trade.direction, "value", trade.direction),
-                            getattr(trade.offset, "value", trade.offset),
-                            trade.volume)
+        bad = apply_trade_to_book(s, trade.vt_symbol.split(".")[0],
+                                  getattr(trade.direction, "value", trade.direction),
+                                  getattr(trade.offset, "value", trade.offset),
+                                  trade.volume)
         self._store.update(s)
         self._push.strategy(s)
         from faos_app.log import log
 
+        if bad:  # 负值归零（平仓量超出策略归属——共享腿他策略仓/事故残留）
+            log(f"FAOS_BOOK_NEGATIVE #{s.id} {pair} {trade.vt_symbol} {bad}，已归零")
         log(f"FAOS_LEG_BOOK #{s.id} {pair} {trade.vt_symbol} "
             f"{getattr(trade.direction, 'value', trade.direction)}@"
             f"{getattr(trade.offset, 'value', trade.offset)} "
             f"{trade.volume} → {s.leg_book.get(trade.vt_symbol.split('.')[0])}")
 
-    def _plan_close_split(self, strategy: Strategy, trigger) -> Optional[dict]:
-        """平仓显式今昨拆分（2026-10-19 定稿）：按策略账本 ∩ 账户实际，先平昨
-        （上期所平今费率高）后期；账本未建/不足 → None（回落账户级净仓转换，
-        行为与修复前一致，不更差）。"""
-        from datetime import datetime as _dt
-
-        from faos_app.leg_book import plan_close_split, roll_book
-        from faos_app.leg_ops import account_position_book
-
-        roll_book(strategy, _dt.now())
-        try:
-            actual = account_position_book(self._ctp.get_positions())
-        except Exception:
-            return None
-        legs = [(strategy.leg_a, vt_symbol_of(strategy.leg_a)),
-                (strategy.leg_b, vt_symbol_of(strategy.leg_b))]
-        key = "long" if trigger.action == TriggerAction.open_short else "short"
-        return plan_close_split(strategy, actual, legs, key, trigger.lots)
+    def _plan_close_split(self, strategy: Strategy, trigger) -> tuple:
+        """平仓显式今昨拆分（2026-10-26 重写，账户级净仓转换退役）：
+        - 总量=触发单 lots（落单/点火时已 clamp 到 close_pool=账本∩柜台；账本
+          为 0 而柜台有仓的老策略兜底语义保留）——不超出账本归属，不吃他策略仓；
+        - 今昨结构=柜台实际持仓（OffsetConverter，成交即时更新）先昨后今
+          （上期所平今费率高）；
+        - 发单量=两腿可用量取小（价差份两腿齐平）；柜台不足→按实际可平量发
+          （缺口告警），宁可少平，绝不溢出走净仓转换反手开新仓（10-26 夜盘
+          事故单实证：A 腿开新仓+B 腿吃共享腿他策略昨仓）。
+        B 腿消耗对向方向（价差两腿方向相反，2026-10-24 定稿）。
+        返回 (split, send_total)；split=None=柜台不可知，{}=柜台无可平。"""
+        book = self._position_book()
+        if book is None:
+            return None, 0.0
+        key = "short" if trigger.action == TriggerAction.open_long else "long"
+        opp = "long" if key == "short" else "short"
+        legs = (strategy.leg_a, strategy.leg_b)
+        rows = []
+        for i, leg in enumerate(legs):
+            row = book.get(vt_symbol_of(leg)) or {}
+            d = key if i == 0 else opp
+            rows.append({"yd": max(0.0, float(row.get(f"{d}_yd", 0) or 0)),
+                         "td": max(0.0, float(row.get(f"{d}_td", 0) or 0))})
+        send = min([float(trigger.lots)] + [r["yd"] + r["td"] for r in rows])
+        if 1e-9 < send < trigger.lots - 1e-9:
+            self._push.notice(
+                "warn",
+                f"{strategy.pair} 平仓 {trigger.lots:g} 份：柜台实际可平仅 {send:g} 份"
+                "（两腿按实际持仓取小），缺口部分未发单——剩余持仓请在无限易/"
+                "今昨仓管理核对后处理")
+        if send <= 1e-9:
+            return {}, 0.0
+        split = {}
+        for leg, r in zip(legs, rows):
+            vt = vt_symbol_of(leg)
+            yd = min(r["yd"], send)
+            td = min(r["td"], send - yd)
+            split[vt] = {"yd": round(yd, 6), "td": round(td, 6)}
+        return split, round(send, 6)
 
     def _process_spread_algo(self, item: AlgoItem) -> None:
         # 盘口停滞提醒：算法跑 20 秒一笔未发（count=秒）→ 大概率某腿无双边报价（死腿/收盘）
@@ -563,43 +604,11 @@ class SpreadService:
         if self._monitor is not None:
             self._monitor.on_algo_finished(s.id, item.algoid)
 
-    def _opposite_yd_blocking(self, strategy: Strategy, action) -> Optional[str]:
-        """开仓两腿的账户对向昨仓检测：存在即返回拒单文案，否则 None。
-
-        开多价差（A 买 B 卖）对向=A 空昨 / B 多昨；开空价差（A 卖 B 买）对向=
-        A 多昨 / B 空昨。柜台不可达（未连接）不拦。"""
-        try:
-            positions = self._ctp.get_positions()
-        except Exception:
-            return None
-        if positions is None:
-            return None
-        yd = {}  # vt_symbol -> {long, short} 昨仓
-        for pos in positions:
-            v = getattr(getattr(pos, "direction", None), "value", None) or str(getattr(pos, "direction", ""))
-            d = {"多": "long", "空": "short"}.get(v, str(v).lower())
-            if d not in ("long", "short"):
-                continue
-            row = yd.setdefault(pos.vt_symbol, {"long": 0.0, "short": 0.0})
-            row[d] += float(getattr(pos, "yd_volume", 0) or 0)
-        a, b = vt_symbol_of(strategy.leg_a), vt_symbol_of(strategy.leg_b)
-        want_a, want_b = (("short", "long") if action == TriggerAction.open_long
-                          else ("long", "short"))
-        blocks = []
-        if yd.get(a, {}).get(want_a, 0) > 1e-9:
-            blocks.append(f"{strategy.leg_a} {'空' if want_a == 'short' else '多'}昨 {yd[a][want_a]:g} 手")
-        if yd.get(b, {}).get(want_b, 0) > 1e-9:
-            blocks.append(f"{strategy.leg_b} {'空' if want_b == 'short' else '多'}昨 {yd[b][want_b]:g} 手")
-        if not blocks:
-            return None
-        return ("开仓会先平掉对向昨仓（" + "、".join(blocks) + "）——共享腿的他策略/昨日"
-                "遗留持仓会被吃掉导致乱仓；请先用「平仓」按钮或今昨仓管理处理反向"
-                "持仓后再开仓")
-
     def mark_stopping_orders(self, pairs=None) -> None:
         """预标记即将主动撤的算法委托（停止/超时/急停/退出/会话清理）：
         其撤单回报不计入 A 腿撤单数（2026-10-23 用户定稿，修「撤单数虚增」）。
-        pairs=None 标记全部策略。"""
+        归属查 _order_pair（发单时刻登记，2026-10-26 修订——交易所活动委托回报
+        的 reference 恒空，按 reference 匹配从未生效过）。pairs=None 标记全部。"""
         try:
             orders = self._ctp.get_all_active_orders()
         except Exception:
@@ -609,10 +618,10 @@ class SpreadService:
         if len(self._stopping_orders) > 10000:
             self._stopping_orders.clear()
         for o in orders:
-            ref = getattr(o, "reference", "") or ""
-            if not ref.startswith(f"{APP_NAME}_"):
-                continue
-            if pairs is not None and ref[len(APP_NAME) + 1:] not in pairs:
+            pair = self._order_pair.get(o.vt_orderid)
+            if pair is None:
+                continue  # 手动单/其他终端委托
+            if pairs is not None and pair not in pairs:
                 continue
             self._stopping_orders.add(o.vt_orderid)
 

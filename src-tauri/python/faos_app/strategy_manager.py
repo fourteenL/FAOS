@@ -615,6 +615,14 @@ class StrategyManager:
                     setattr(s, field, float(cap))
                     fixes.append(f"#{s.id} {s.pair} {label}头价差 {have:g}→{cap:g} 份")
                     changed = True
+            # leg_book 负值归零（2026-10-26 夜盘事故残留实证：ag2612 long_yd -2
+            # 长期滞留污染对账）——只修不可能的负数，不动正常结构
+            for leg, entry in (s.leg_book or {}).items():
+                for k in ("long_td", "long_yd", "short_td", "short_yd"):
+                    if entry.get(k, 0) < 0:
+                        fixes.append(f"#{s.id} {s.pair} {leg} {k} {entry[k]:g}→0")
+                        entry[k] = 0.0
+                        changed = True
             if changed:
                 s.held_units = round((s.held_long_units or 0) - (s.held_short_units or 0), 6)
                 self._store.update(s)
