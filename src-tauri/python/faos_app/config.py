@@ -164,9 +164,26 @@ def settings_path() -> Path:
 
 
 def load_settings(path: Path) -> Settings:
+    """加载设置文件；空/非法 JSON 不再崩溃（2026-10-26）——坏文件改名备份
+    *.corrupt-时间戳 后按默认启动（与 strategies.json 自愈同策略）。"""
     if not path.exists():
         return Settings()
-    return Settings.model_validate_json(path.read_text(encoding="utf-8"))
+    try:
+        return Settings.model_validate_json(path.read_text(encoding="utf-8"))
+    except Exception as e:
+        import os
+        from datetime import datetime
+
+        from faos_app.log import log
+
+        stamp = datetime.now().strftime("%Y%m%d%H%M%S%f")
+        bak = path.with_name(f"{path.name}.corrupt-{stamp}")
+        try:
+            os.replace(path, bak)
+        except OSError:
+            pass
+        log(f"FAOS_SETTINGS_RECOVERED 损坏（{e}）→ 默认设置启动，备份 {bak.name}")
+        return Settings()
 
 
 REPO_CONFIG_RELPATH = Path("config") / "settings.local.json"

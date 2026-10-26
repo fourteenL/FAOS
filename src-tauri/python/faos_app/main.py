@@ -35,6 +35,8 @@ from faos_app.trigger_monitor import TriggerMonitor
 def _build_services(settings: Settings, portal, pusher: Pusher) -> AppState:
     """构造服务并接线（本地价差触发：CTP 两腿 tick → 合成 → 监控；行情推送链路已退役）。"""
     store = StrategyStore(default_data_dir() / "strategies.json")
+    if store.recovered_note:  # 坏文件自愈（2026-10-26）：界面提醒，证据在备份文件
+        pusher.notice("warn", f"策略数据恢复：{store.recovered_note}")
     from faos_app.ctp import CtpService
 
     ctp = CtpService(push=pusher)
