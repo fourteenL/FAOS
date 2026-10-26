@@ -152,14 +152,19 @@ def main() -> int:
     banner()
     log("FAOS_SETTINGS_LOADED")
     cleanup_old_logs()  # 启动清理过期日志
+    # 启动阶段标记（2026-10-26）：部分机器进程在 SETTINGS_LOADED 后无声死亡——
+    # 阶段日志把死亡区间缩到一步；stderr 已另行落盘 faos-stderr-*.log
+    log("FAOS_STARTUP_STAGE portal")
     with (
         start_blocking_portal("asyncio") as portal,
         AsyncTools(portal) as async_tools,
     ):
+        log("FAOS_STARTUP_STAGE builder")
         app = builder_factory().build(
             context=context_factory(),
             invoke_handler=commands.generate_handler(portal),
         )
+        log("FAOS_STARTUP_STAGE services")
         pusher = Pusher(app.handle())
         state = _build_services(settings, portal, pusher)
         Manager.manage(app, state)

@@ -29,15 +29,29 @@ class NullIO:
 
 
 def ensure_stdio() -> None:
-    """无控制台环境把 None 的 stdout/stderr 换成空接收器。
+    """无控制台环境补 stdio：stdout→空接收器；**stderr→落盘 faos-stderr-*.log**。
 
     vnpy.trader.logger 在 import 时 logger.add(sink=sys.stdout)，stdout 为 None
     会抛 loguru TypeError——必须在导入 faos_app.main（间接导入 vnpy）之前调用。
+    stderr 不能丢弃（2026-10-26 实证：beta.24 在部分机器启动无声死亡——进程停在
+    SETTINGS_LOADED 后、无 CTP_INIT_FAIL/CLEAN_EXIT，traceback 被 NullIO 吞掉
+    无法定位根因）。落盘后 Python 异常链可追溯；stderr 非空（cmd 重定向诊断
+    模式）保持原样不动。
     """
     if sys.stdout is None:
         sys.stdout = NullIO()  # type: ignore[assignment]
     if sys.stderr is None:
-        sys.stderr = NullIO()  # type: ignore[assignment]
+        try:
+            f = open(_log_dir() / f"faos-stderr-{_today().isoformat()}.log",
+                     "a", buffering=1, encoding="utf-8", errors="replace")
+            f.write(f"---- FAOS stderr 捕获 {time.strftime('%Y-%m-%d %H:%M:%S')}"
+                    f" pid={os.getpid()} ----\n")
+            import atexit
+
+            atexit.register(lambda: (f.flush(), f.close()))
+            sys.stderr = f  # type: ignore[assignment]
+        except Exception:
+            sys.stderr = NullIO()  # type: ignore[assignment]
 
 
 def _today() -> datetime.date:
